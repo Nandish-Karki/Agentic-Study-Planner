@@ -3,8 +3,9 @@ from crewai.tools import tool
 from pypdf import PdfReader
 
 # Per-call character cap — keeps any single tool result within the LLM's
-# per-request token budget (GitHub Models ~8k input tokens, Groq 12k).
-READ_CHAR_CAP = 8_000
+# per-request token budget. 12k chars ≈ 3k tokens; the full DKE handbook
+# (9.6k chars) fits in one read.
+READ_CHAR_CAP = 12_000
 
 
 def _extract_pdf_text(path: pathlib.Path) -> str:

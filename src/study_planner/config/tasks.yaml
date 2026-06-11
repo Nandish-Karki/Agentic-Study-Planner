@@ -1,0 +1,73 @@
+profile_task:
+  description: >
+    Read the student's CV ({data_dir}/cv.pdf) and transcript
+    ({data_dir}/transcript.pdf) using read_document.
+    Produce a compact student profile:
+    1. Programme and current status (semester, credits earned so far)
+    2. Completed modules: name, grade, credit points (CP) — as a table
+    3. Demonstrated technical skills (from CV work experience + projects)
+    Use only facts from the two documents. Under 300 words.
+  expected_output: >
+    Student profile with completed-modules table and skills list. Under 300 words.
+  agent: profile_analyst
+
+career_task:
+  description: >
+    Read the career path document ({data_dir}/career.pdf) using read_document.
+    State the target role, then list the required competencies ranked by
+    importance, split into must-have and nice-to-have. Under 200 words.
+  expected_output: >
+    Target role + ranked must-have and nice-to-have skill lists. Under 200 words.
+  agent: career_analyst
+
+modules_task:
+  description: >
+    Read the module handbook ({data_dir}/module_handbook.pdf) using read_document.
+    If truncated, use search_document to retrieve the remaining modules.
+    Produce a Markdown table of ALL selectable modules:
+    | Module | CP | Semester offered | Key skills taught | Prerequisites |
+    List only modules that actually appear in the handbook. Write "n/a" for
+    missing details. Do not editorialise — just the table.
+  expected_output: >
+    A complete Markdown module table with one row per module from the handbook.
+  agent: module_curator
+
+gap_task:
+  description: >
+    Compare the student profile against the career requirements.
+    Produce:
+    1. Strengths already covered (bullets, one line each)
+    2. Skill gaps in priority order (numbered, one line each, tied to the
+       career must-haves)
+    Under 200 words.
+  expected_output: >
+    Strengths list + prioritized skill-gap list. Under 200 words.
+  agent: gap_analyst
+  context:
+    - profile_task
+    - career_task
+
+plan_task:
+  description: >
+    Create the personalized semester-wise study plan. Use the student profile,
+    career requirements, module catalog, and skill gaps. Rules:
+    - Use ONLY modules from the curator's module table — never invent modules
+    - Do not include modules the student has already completed (check the transcript table)
+    - Aim for roughly 30 ECTS per semester; respect prerequisites and semester offerings
+    - Cover the highest-priority skill gaps first
+    Output sections:
+    1. **Summary** (2-3 sentences: where the student is, where they're heading)
+    2. **Semester plans** — one subsection per remaining semester with a table:
+       | Module | CP | Closes gap | Why |
+       and the semester's total CP
+    3. **Thesis/electives advice** (2-3 sentences if applicable)
+    4. **Gaps not covered by any module** (and how to close them outside coursework)
+  expected_output: >
+    A complete Markdown study plan with summary, per-semester module tables
+    with credit totals and one-line justifications, and uncovered-gaps section.
+  agent: study_planner
+  context:
+    - profile_task
+    - career_task
+    - modules_task
+    - gap_task
