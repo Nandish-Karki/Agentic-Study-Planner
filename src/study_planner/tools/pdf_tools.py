@@ -3,9 +3,10 @@ from crewai.tools import tool
 from pypdf import PdfReader
 
 # Per-call character cap — keeps any single tool result within the LLM's
-# per-request token budget. 12k chars ≈ 3k tokens; the full DKE handbook
-# (9.6k chars) fits in one read.
-READ_CHAR_CAP = 12_000
+# per-request token budget. GitHub Models free tier allows only 8k tokens for
+# the ENTIRE request (system + history + tool results), so each chunk must
+# stay small. 5k chars ≈ 1.3k tokens. Longer docs are read in chunks (::2, ::3).
+READ_CHAR_CAP = 5_000
 
 
 def _extract_pdf_text(path: pathlib.Path) -> str:
@@ -48,15 +49,25 @@ def list_input_files(directory: str) -> str:
 @tool("read_document")
 def read_document(file_path: str) -> str:
     """
-    Read a document (PDF, .md, or .txt). Returns up to the first 8000 characters.
-    If the document is longer, the output says how much is left — use search_document
-    to find specific content in large files like a module handbook.
-    Input: a file path (relative to the data/ folder or absolute).
+    Read a document (PDF, .md, or .txt) in chunks of 5000 characters.
+    Input: a file path, optionally with a chunk number after '::'.
+      "module_handbook.pdf"      → chunk 1 (first 5000 chars)
+      "module_handbook.pdf::2"   → chunk 2 (next 5000 chars), and so on
+    The output states how many chunks the document has. Read all chunks of a
+    document before summarising it.
     """
-    path = pathlib.Path(file_path).resolve()
+    chunk_no = 1
+    if "::" in file_path:
+        file_path, chunk_part = file_path.split("::", 1)
+        try:
+            chunk_no = max(1, int(chunk_part.strip()))
+        except ValueError:
+            return f"ERROR: chunk must be a number, got {chunk_part!r}"
+
+    path = pathlib.Path(file_path.strip()).resolve()
     if not path.exists():
         # fallback: look inside ./data
-        candidate = pathlib.Path("data") / pathlib.Path(file_path).name
+        candidate = pathlib.Path("data") / pathlib.Path(file_path.strip()).name
         if candidate.exists():
             path = candidate.resolve()
         else:
@@ -73,13 +84,19 @@ def read_document(file_path: str) -> str:
             "it may be a scanned/image-based PDF."
         )
 
-    if len(text) > READ_CHAR_CAP:
-        return (
-            text[:READ_CHAR_CAP]
-            + f"\n\n[TRUNCATED — {len(text) - READ_CHAR_CAP} more characters. "
-            f"Use search_document('keyword::{path.name}') to find specific sections.]"
-        )
-    return text
+    total_chunks = max(1, -(-len(text) // READ_CHAR_CAP))  # ceil division
+    if chunk_no > total_chunks:
+        return f"ERROR: {path.name} has only {total_chunks} chunk(s)."
+
+    start = (chunk_no - 1) * READ_CHAR_CAP
+    body = text[start : start + READ_CHAR_CAP]
+    header = f"[{path.name} — chunk {chunk_no}/{total_chunks}]\n"
+    footer = (
+        f"\n[More content: read '{path.name}::{chunk_no + 1}' for the next chunk.]"
+        if chunk_no < total_chunks
+        else "\n[End of document.]"
+    )
+    return header + body + footer
 
 
 @tool("search_document")

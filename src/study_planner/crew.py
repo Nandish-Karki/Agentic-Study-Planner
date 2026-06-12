@@ -40,26 +40,45 @@ def _patched_completion(*args, **kwargs):
 
 litellm.completion = _patched_completion
 
-# ─── LLM provider switch (LLM_PROVIDER in .env: github | groq) ────────────────
-_provider = os.getenv("LLM_PROVIDER", "groq").lower()
+# ─── LLM provider switch (LLM_PROVIDER in .env: mixed | github | groq) ────────
+# Free-tier limits force a split strategy:
+#   GitHub Models: 8k tokens/request hard cap  → too small for document-reading agents
+#   Groq:          12k tokens/request, 100k/day → fits documents, but daily budget
+# "mixed" (default): tool agents on Groq (big contexts), synthesis on GitHub gpt-4o
+#   (compact contexts) — uses each quota where it fits.
 
-if _provider == "github":
-    _key = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_API_KEY")
-    if not _key:
-        raise ValueError("LLM_PROVIDER=github but GITHUB_TOKEN is not set in .env")
-    _fast_model = os.getenv("LLM_MODEL_FAST", "github/gpt-4o-mini")
-    _smart_model = os.getenv("LLM_MODEL_SMART", "github/gpt-4o")
-else:
-    _key = os.getenv("GROQ_API_KEY")
-    if not _key:
-        raise ValueError("LLM_PROVIDER=groq but GROQ_API_KEY is not set in .env")
-    _fast_model = os.getenv("LLM_MODEL_FAST", "groq/llama-3.3-70b-versatile")
-    _smart_model = os.getenv("LLM_MODEL_SMART", "groq/llama-3.3-70b-versatile")
+def _key_for(model: str) -> str:
+    """Resolve the API key from the model's provider prefix."""
+    if model.startswith("github/"):
+        key = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_API_KEY")
+        if not key:
+            raise ValueError(f"model {model} needs GITHUB_TOKEN in .env")
+    elif model.startswith("groq/"):
+        key = os.getenv("GROQ_API_KEY")
+        if not key:
+            raise ValueError(f"model {model} needs GROQ_API_KEY in .env")
+    else:
+        raise ValueError(f"unsupported provider prefix in model: {model}")
+    return key
+
+
+_provider = os.getenv("LLM_PROVIDER", "mixed").lower()
+
+_defaults = {
+    "mixed":  ("groq/llama-3.3-70b-versatile", "github/gpt-4o"),
+    "github": ("github/gpt-4o-mini", "github/gpt-4o"),
+    "groq":   ("groq/llama-3.3-70b-versatile", "groq/llama-3.3-70b-versatile"),
+}
+if _provider not in _defaults:
+    raise ValueError(f"LLM_PROVIDER must be one of {list(_defaults)} — got {_provider!r}")
+
+_fast_model = os.getenv("LLM_MODEL_FAST", _defaults[_provider][0])
+_smart_model = os.getenv("LLM_MODEL_SMART", _defaults[_provider][1])
 
 print(f"[llm config] provider={_provider}  fast={_fast_model}  smart={_smart_model}")
 
-llm_fast = LLM(model=_fast_model, api_key=_key, temperature=0.2)
-llm_smart = LLM(model=_smart_model, api_key=_key, temperature=0.2)
+llm_fast = LLM(model=_fast_model, api_key=_key_for(_fast_model), temperature=0.2)
+llm_smart = LLM(model=_smart_model, api_key=_key_for(_smart_model), temperature=0.2)
 
 
 # ─── Crew ─────────────────────────────────────────────────────────────────────
