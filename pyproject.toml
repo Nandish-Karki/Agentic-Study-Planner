@@ -11,6 +11,9 @@ dependencies = [
     "pypdf>=4.0.0",
 ]
 
+[project.optional-dependencies]
+dev = ["fpdf2>=2.8.0"]  # only for scripts/make_sample_data.py
+
 [project.scripts]
 plan_studies = "study_planner.main:main"
 
