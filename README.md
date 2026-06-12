@@ -1,6 +1,5 @@
 # Agentic Study Planner
 
-> OvGU Workshop AgenticAI — Group Work · June 2026
 
 A multi-agent study planner built with **CrewAI**. It reads a student's CV, academic transcript, target career path, and the university module handbook — all real PDFs — and generates a **personalized semester-wise study plan**.
 
