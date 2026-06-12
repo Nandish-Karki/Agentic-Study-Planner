@@ -25,23 +25,43 @@ Output: `outputs/study_plan.md` — semester tables with credits and per-module 
 
 **Grounding design:** the two synthesis agents (`gap_analyst`, `study_planner`) have **no tools** — they can only reason over what the three analyst agents extracted from the real documents. The planner is explicitly constrained to modules from the curator's catalog, so it cannot invent coursework.
 
-## Quickstart
+## Workshop quickstart (5 steps, ~10 minutes)
 
-```powershell
-# 1. Python 3.10 venv (CrewAI deps have no Python 3.14 wheels on Windows)
-py -3.10 -m venv .venv
-.\.venv\Scripts\pip install -e .
+Works out of the box with the bundled **synthetic sample data** (`sample_data/` — a
+fictional student, safe to share). Your own PDFs come later and never leave your machine.
 
-# 2. Keys
-copy .env.example .env    # then fill in GITHUB_TOKEN or GROQ_API_KEY
+1. **Clone** the repo and open a terminal in it.
+2. **Get a free LLM token** (pick one):
+   - *GitHub Models (recommended):* GitHub → Settings → Developer settings →
+     [Fine-grained personal access tokens](https://github.com/settings/personal-access-tokens) →
+     Generate new token → under **Account permissions** set **Models: Read-only** → copy the `github_pat_…` token.
+   - *Groq:* create a free key at [console.groq.com/keys](https://console.groq.com/keys), and set `LLM_PROVIDER=groq` in `.env`.
+3. **Run setup** — `.\setup.ps1` (Windows) or `./setup.sh` (macOS/Linux).
+   It creates the venv, installs dependencies, and creates `.env` from the template.
+4. **Paste your token into `.env`**, then run setup again. It finishes with a
+   preflight check — every line should say `[ OK ]`.
+5. **Run it:**
+   ```powershell
+   $env:PYTHONUTF8 = "1"                                   # Windows only
+   .\.venv\Scripts\python -m study_planner.main sample_data
+   ```
+   Watch the five agents work; the plan lands in `outputs/study_plan.md`.
+   Compare with `sample_data/expected_output_example.md` to see what success looks like.
 
-# 3. Input documents → data/   (see data/README.md for expected filenames)
-#    cv.pdf, transcript.pdf, career.pdf, module_handbook.pdf
+**Then try your own documents:** put `cv.pdf`, `transcript.pdf`, `career.pdf`,
+`module_handbook.pdf` into `data/` (gitignored — they stay local) and run
+`... -m study_planner.main data`.
 
-# 4. Run
-$env:PYTHONUTF8 = "1"
-.\.venv\Scripts\python -m study_planner.main data
-```
+### Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Anything fails | Run `.\.venv\Scripts\python -m study_planner.check sample_data` — every failure prints its specific fix |
+| `pip install` fails resolving wheels | You're on Python 3.14 — install Python 3.10–3.13 and delete `.venv`, re-run setup |
+| `401`/`permission` on LLM call | Token missing the **Models: Read-only** scope (GitHub) or expired — regenerate, update `.env` |
+| `UnicodeEncodeError` on Windows | Set `$env:PYTHONUTF8 = "1"` before running |
+| Rate-limit messages mid-run | Normal on free tiers — the run waits and retries automatically. Persistent? Switch `LLM_PROVIDER=groq` (or back) |
+| Garbage module table | Your handbook PDF has no text layer (scanned). Export a text-based PDF |
 
 ## Use from another project
 
@@ -61,12 +81,18 @@ agentic-study-planner/
 ├── src/study_planner/
 │   ├── main.py                  # CLI + plan_studies() public API
 │   ├── crew.py                  # @CrewBase crew, LLM provider switch, litellm patches
+│   ├── check.py                 # preflight check: python -m study_planner.check
 │   ├── config/
 │   │   ├── agents.yaml          # 5 agent definitions
 │   │   └── tasks.yaml           # 5 tasks with output constraints + context chains
 │   └── tools/pdf_tools.py       # read_document, search_document, list_input_files
-├── data/                        # input PDFs (gitignored — personal documents)
+├── sample_data/                 # synthetic test PDFs (fictional student — committed)
+├── scripts/make_sample_data.py  # regenerates sample_data/
+├── setup.ps1 / setup.sh         # one-command setup + preflight
+├── data/                        # YOUR input PDFs (gitignored — personal documents)
 ├── outputs/study_plan.md        # generated plan (gitignored)
+├── docs/                        # lifecycle verification (LaTeX) + distribution plan
+├── FUTURE.md                    # roadmap: validators, metrics, UI
 ├── spike_pdf.py                 # standalone PDF-extraction verification
 └── test_llm.py                  # standalone LLM-provider verification
 ```
