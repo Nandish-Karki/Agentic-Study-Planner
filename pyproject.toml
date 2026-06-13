@@ -12,7 +12,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["fpdf2>=2.8.0"]  # only for scripts/make_sample_data.py
+dev = ["fpdf2>=2.8.0", "pytest>=8.0"]  # sample-data generator + test suite
+demo = ["streamlit>=1.36"]              # Phase 0 validation demo (demo/app.py)
 
 [project.scripts]
 plan_studies = "study_planner.main:main"

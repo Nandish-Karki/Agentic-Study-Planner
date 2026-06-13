@@ -21,6 +21,9 @@ build/
 # Outputs (regenerated each run)
 outputs/
 
+# Demo event log — contains volunteered emails + feedback, never commit
+demo/events.jsonl
+
 # IDE
 .vscode/
 .idea/
