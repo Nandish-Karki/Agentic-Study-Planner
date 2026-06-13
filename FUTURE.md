@@ -7,18 +7,25 @@
 
 ## 1. Close the loop (highest priority)
 
-### 1.1 Deterministic plan validator (eval harness)
-The plan's hard rules currently live only in the prompt. Per the
-defense-in-depth rule, enforce them a second time in code — a
-`validate_plan.py` that checks, after every run:
+### 1.1 Deterministic plan validator (eval harness) — ✅ DONE
+Implemented in `src/study_planner/validate.py`, wired into `plan_studies`
+(returns a `ValidationReport`) and surfaced in the CLI + Streamlit demo as
+pass/fail badges. Checks, in code, after every run:
 
-- every module in the plan appears in the curator's module table (grounding check)
-- no planned module appears in the transcript's completed list (no re-takes)
-- per-semester CP totals are arithmetically correct and within 24–33 ECTS
-- prerequisites of each planned module are completed or scheduled earlier
+- every module in the plan appears in the curator's module table (grounding) — ERROR
+- no planned module appears in the transcript's completed list (no re-takes) — ERROR
+- per-semester CP totals are arithmetically correct (ERROR) and within band (WARNING)
+- module take-limits ("at most twice") respected — ERROR
+- prerequisites of each planned module are completed or scheduled earlier — WARNING
 
-Output: a pass/fail report with named violations. Advisory first, blocking later.
-This turns "the plan looks good" into a measurable number per run.
+Markdown tables are parsed by column header (not position) and module names
+matched fuzzily (difflib) so LLM formatting/abbreviation drift doesn't false-flag.
+13 unit + integration tests in `tests/test_validate.py`. In live runs it has
+already caught two distinct hallucination classes the prompt failed to prevent:
+a take-limit violation and an invented "Elective" module.
+
+**Remaining:** flip from advisory to blocking (re-plan loop on ERROR) — best done
+in Phase 1 as a LangGraph-style validate→replan edge, or a bounded retry in the worker.
 
 ### 1.2 Run metrics sidecar (Monitoring stage)
 Write `outputs/run_metrics.json` per run: per-task latency, model used,

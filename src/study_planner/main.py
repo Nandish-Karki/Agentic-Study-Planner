@@ -12,7 +12,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def plan_studies(data_dir: str = "data", save_report: bool = True) -> dict:
+def plan_studies(data_dir: str = "data", save_report: bool = True,
+                 validate: bool = True) -> dict:
     """
     Run the 5-agent study-planner crew on a folder of input documents.
 
@@ -20,9 +21,12 @@ def plan_studies(data_dir: str = "data", save_report: bool = True) -> dict:
 
     Returns:
         {
-          "study_plan":  str  — semester-wise plan (Markdown)
-          "skill_gaps":  str  — prioritized gap analysis (Markdown)
-          "report_path": str | None — path to saved outputs/study_plan.md
+          "study_plan":     str  — semester-wise plan (Markdown)
+          "skill_gaps":     str  — prioritized gap analysis (Markdown)
+          "module_catalog": str  — curator's module table (Markdown)
+          "profile":        str  — student profile incl. completed modules
+          "validation":     ValidationReport | None — deterministic rule check
+          "report_path":    str | None — path to saved outputs/study_plan.md
         }
     """
     # Import here so load_dotenv() runs before crew.py module-level config
@@ -46,22 +50,41 @@ def plan_studies(data_dir: str = "data", save_report: bool = True) -> dict:
         )
     skill_gaps = by_name["gap_task"]
     study_plan = by_name["plan_task"]
+    module_catalog = by_name.get("modules_task", "")
+    profile = by_name.get("profile_task", "")
+
+    # Deterministic second layer: re-check the plan's hard rules in code
+    # (prompt rules alone are not enough — see validate.py / FUTURE.md 1.1).
+    validation = None
+    if validate:
+        from study_planner.validate import validate_plan
+        validation = validate_plan(study_plan, module_catalog, profile)
 
     report_path = None
     if save_report:
         out_dir = pathlib.Path(__file__).parent.parent.parent / "outputs"
         out_dir.mkdir(exist_ok=True)
         out_file = out_dir / "study_plan.md"
+        val_section = f"\n---\n\n# Plan Validation\n\n```\n{validation.summary()}\n```\n" \
+            if validation else ""
         report = (
             f"# Personalized Study Plan\n\n"
             f"**Inputs:** `{data}`\n\n"
             f"---\n\n{study_plan}\n\n---\n\n"
             f"# Skill Gap Analysis\n\n{skill_gaps}\n"
+            f"{val_section}"
         )
         out_file.write_text(report, encoding="utf-8")
         report_path = str(out_file.resolve())
 
-    return {"study_plan": study_plan, "skill_gaps": skill_gaps, "report_path": report_path}
+    return {
+        "study_plan": study_plan,
+        "skill_gaps": skill_gaps,
+        "module_catalog": module_catalog,
+        "profile": profile,
+        "validation": validation,
+        "report_path": report_path,
+    }
 
 
 def main():
@@ -76,6 +99,10 @@ def main():
     print("STUDY PLAN:\n")
     print(result["study_plan"])
     print(f"\n{'='*60}")
+    if result.get("validation"):
+        print("PLAN VALIDATION:\n")
+        print(result["validation"].summary())
+        print(f"{'='*60}")
     if result["report_path"]:
         print(f"Full report saved to: {result['report_path']}")
     print(f"{'='*60}\n")
