@@ -23,7 +23,8 @@ career_task:
 modules_task:
   description: >
     Read the module handbook ({data_dir}/module_handbook.pdf) using read_document.
-    If truncated, use search_document to retrieve the remaining modules.
+    If truncated, use search_document with the full path to retrieve the
+    remaining modules, e.g. "Machine Learning::{data_dir}/module_handbook.pdf".
     Produce a Markdown table of ALL selectable modules:
     | Module | CP | Semester offered | Key skills taught | Prerequisites |
     List only modules that actually appear in the handbook. Write "n/a" for

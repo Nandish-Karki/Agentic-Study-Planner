@@ -26,6 +26,27 @@ def _read_any(path: pathlib.Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+# Input folders tried, by basename, when a bare filename is given (not a full
+# path). Both the real run (data/) and the workshop sample run (sample_data/)
+# resolve here, so the tools are not hardwired to one directory.
+_FALLBACK_DIRS = ("data", "sample_data")
+
+
+def _resolve_input_path(file_path: str) -> pathlib.Path | None:
+    """Resolve a document path. Tries the path exactly as given first (this is
+    the normal case — tasks pass the full {data_dir}/... path), then falls back
+    to known input folders by basename. Returns None if nothing matches."""
+    p = pathlib.Path(file_path.strip())
+    if p.exists():
+        return p.resolve()
+    name = p.name
+    for d in _FALLBACK_DIRS:
+        candidate = pathlib.Path(d) / name
+        if candidate.exists():
+            return candidate.resolve()
+    return None
+
+
 @tool("list_input_files")
 def list_input_files(directory: str) -> str:
     """
@@ -64,14 +85,9 @@ def read_document(file_path: str) -> str:
         except ValueError:
             return f"ERROR: chunk must be a number, got {chunk_part!r}"
 
-    path = pathlib.Path(file_path.strip()).resolve()
-    if not path.exists():
-        # fallback: look inside ./data
-        candidate = pathlib.Path("data") / pathlib.Path(file_path.strip()).name
-        if candidate.exists():
-            path = candidate.resolve()
-        else:
-            return f"ERROR: file not found: {file_path}. Use list_input_files to see available files."
+    path = _resolve_input_path(file_path)
+    if path is None:
+        return f"ERROR: file not found: {file_path}. Use list_input_files to see available files."
 
     try:
         text = _read_any(path)
@@ -104,23 +120,23 @@ def search_document(query: str) -> str:
     """
     Search for a keyword inside a document and return matching lines with context.
     Essential for large documents like module handbooks that exceed the read limit.
-    Input format: "keyword::filename"  e.g. "Machine Learning::module_handbook.pdf"
-    The file is looked up in the data/ folder. Returns up to 20 matches with
+    Input format: "keyword::path"  — pass the SAME file path you would give to
+    read_document (the full path from the task is safest), e.g.
+    "Machine Learning::data/module_handbook.pdf". A bare filename also works and
+    is resolved against the known input folders. Returns up to 20 matches with
     2 lines of context around each.
     """
     if "::" not in query:
-        return "ERROR: input must be 'keyword::filename', e.g. 'Data Mining::module_handbook.pdf'"
+        return "ERROR: input must be 'keyword::path', e.g. 'Data Mining::data/module_handbook.pdf'"
     keyword, filename = query.split("::", 1)
     keyword = keyword.strip()
 
-    path = pathlib.Path("data") / filename.strip()
-    if not path.exists():
-        path = pathlib.Path(filename.strip())
-        if not path.exists():
-            return f"ERROR: file not found: {filename}. Use list_input_files to see available files."
+    path = _resolve_input_path(filename)
+    if path is None:
+        return f"ERROR: file not found: {filename}. Use list_input_files to see available files."
 
     try:
-        text = _read_any(path.resolve())
+        text = _read_any(path)
     except Exception as e:
         return f"ERROR reading {path.name}: {e}"
 

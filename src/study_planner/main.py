@@ -32,11 +32,20 @@ def plan_studies(data_dir: str = "data", save_report: bool = True) -> dict:
     if not data.exists():
         raise FileNotFoundError(f"Input folder not found: {data}")
 
-    result = StudyPlannerCrew().crew().kickoff(inputs={"data_dir": str(data)})
+    crew = StudyPlannerCrew().crew()
+    result = crew.kickoff(inputs={"data_dir": str(data)})
 
-    # task order: profile(0) career(1) modules(2) gap(3) plan(4)
-    skill_gaps = result.tasks_output[3].raw
-    study_plan = result.tasks_output[4].raw
+    # Map each task's output by task name (robust to task reordering — never
+    # index tasks_output by position). tasks_output is in crew.tasks order.
+    by_name = {t.name: o.raw for t, o in zip(crew.tasks, result.tasks_output)}
+    missing = {"gap_task", "plan_task"} - by_name.keys()
+    if missing:
+        raise RuntimeError(
+            f"Crew finished but produced no output for: {sorted(missing)}. "
+            f"Got outputs for: {sorted(by_name)}. A task likely failed mid-run."
+        )
+    skill_gaps = by_name["gap_task"]
+    study_plan = by_name["plan_task"]
 
     report_path = None
     if save_report:

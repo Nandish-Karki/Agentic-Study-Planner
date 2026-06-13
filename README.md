@@ -22,7 +22,9 @@ study_planner       semester-wise plan (~30 ECTS/semester,
 
 Output: `outputs/study_plan.md` — semester tables with credits and per-module justifications, plus the skill-gap analysis.
 
-**Grounding design:** the two synthesis agents (`gap_analyst`, `study_planner`) have **no tools** — they can only reason over what the three analyst agents extracted from the real documents. The planner is explicitly constrained to modules from the curator's catalog, so it cannot invent coursework.
+**Grounding design:** the two synthesis agents (`gap_analyst`, `study_planner`) have **no tools** — they can only reason over what the three analyst agents extracted from the real documents. This grounds them in *provenance*: the planner's module vocabulary is limited to the curator's catalog, so it won't pull a module out of thin air.
+
+What this does **not** guarantee is *constraint compliance* — being tool-less stops the planner inventing modules, but it does not force it to obey every rule in its context (e.g. a "take at most twice" limit). LLMs still violate such rules; see the known limitation noted in [sample_data/expected_output_example.md](sample_data/expected_output_example.md). The robust fix is a deterministic post-run validator that checks the plan in code, not just in the prompt — see [FUTURE.md](FUTURE.md) item 1.1.
 
 ## Workshop quickstart (5 steps, ~10 minutes)
 
