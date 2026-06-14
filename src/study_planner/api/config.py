@@ -32,6 +32,20 @@ class Settings:
         return self.database_url.startswith("sqlite")
 
 
+def _normalize_db_url(url: str) -> str:
+    """Coerce a plain Postgres URL to the async driver the app needs.
+
+    Managed hosts (Render, Heroku, Railway) hand out `postgres://` or
+    `postgresql://`; SQLAlchemy-async needs `postgresql+asyncpg://`. Rewriting it
+    here removes a classic deploy footgun.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+    return url
+
+
 def load_settings() -> Settings:
     debug = os.getenv("DEBUG", "1") == "1"
     secret = os.getenv("SECRET_KEY", "")
@@ -42,7 +56,8 @@ def load_settings() -> Settings:
     return Settings(
         secret_key=secret,
         access_token_ttl_min=int(os.getenv("ACCESS_TOKEN_TTL_MIN", "60")),
-        database_url=os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./study_planner.db"),
+        database_url=_normalize_db_url(
+            os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./study_planner.db")),
         job_mode=os.getenv("JOB_MODE", "eager").lower(),
         redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"),
         max_plans_per_day=int(os.getenv("MAX_PLANS_PER_DAY", "5")),

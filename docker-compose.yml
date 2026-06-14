@@ -1,0 +1,78 @@
+# Full local stack: Postgres + Redis + API + worker + frontend.
+# Mirrors the production topology (BUILD_PLAN §3-§4) so "works in compose" ≈ "works in prod".
+#
+#   echo "GITHUB_TOKEN=..." > .env       # LLM key the worker needs
+#   docker compose up --build
+#   frontend → http://localhost:5173   api → http://localhost:8000/docs
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: planner
+      POSTGRES_PASSWORD: planner
+      POSTGRES_DB: study_planner
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U planner"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      DEBUG: "0"
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-prod-please-32-chars-min}
+      DATABASE_URL: postgresql+asyncpg://planner:planner@db:5432/study_planner
+      JOB_MODE: rq
+      REDIS_URL: redis://redis:6379/0
+      ALLOWED_ORIGINS: http://localhost:5173
+      LLM_PROVIDER: ${LLM_PROVIDER:-github}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    build: .
+    command: ["python", "-m", "study_planner.worker"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://planner:planner@db:5432/study_planner
+      JOB_MODE: rq
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-prod-please-32-chars-min}
+      LLM_PROVIDER: ${LLM_PROVIDER:-github}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    # Scale concurrency by running more workers: docker compose up --scale worker=3
+    deploy:
+      replicas: 2
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

@@ -16,11 +16,11 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Dev/SQLite convenience: create tables on boot. Prod Postgres uses migrations.
-    from study_planner.api.config import settings
-    if settings.is_sqlite:
-        from study_planner.api.db import init_db
-        await init_db()
+    # Create any missing tables on boot. create_all is idempotent/additive (the
+    # playbook's safe-persistence rule), so it's fine on SQLite and on a fresh
+    # Postgres. Schema *changes* in prod should go through Alembic migrations.
+    from study_planner.api.db import init_db
+    await init_db()
     yield
 
 

@@ -1,0 +1,89 @@
+# Render.com blueprint — one-shot managed deploy of the whole stack
+# (BUILD_PLAN deploy). Create a new Blueprint on render.com pointing at this repo.
+# Set the secret env vars (GITHUB_TOKEN / GROQ_API_KEY) in the dashboard after.
+#
+# Pick a EU region for GDPR residency (frankfurt).
+
+databases:
+  - name: study-planner-db
+    region: frankfurt
+    plan: free
+    postgresMajorVersion: "16"
+
+services:
+  # Redis (job queue)
+  - type: keyvalue
+    name: study-planner-redis
+    region: frankfurt
+    plan: free
+    ipAllowList: []
+
+  # API (web)
+  - type: web
+    name: study-planner-api
+    runtime: docker
+    region: frankfurt
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: DEBUG
+        value: "0"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JOB_MODE
+        value: rq
+      - key: DATABASE_URL
+        fromDatabase:
+          name: study-planner-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: study-planner-redis
+          property: connectionString
+      - key: ALLOWED_ORIGINS
+        sync: false   # set to your frontend URL, e.g. https://study-planner.vercel.app
+      - key: LLM_PROVIDER
+        value: github
+      - key: GITHUB_TOKEN
+        sync: false   # set in dashboard
+      - key: GROQ_API_KEY
+        sync: false
+
+  # Worker (RQ) — runs the 5-agent crew off the request path
+  - type: worker
+    name: study-planner-worker
+    runtime: docker
+    region: frankfurt
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python -m study_planner.worker
+    envVars:
+      - key: JOB_MODE
+        value: rq
+      - key: DATABASE_URL
+        fromDatabase:
+          name: study-planner-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: study-planner-redis
+          property: connectionString
+      - key: SECRET_KEY
+        fromService:
+          type: web
+          name: study-planner-api
+          envVarKey: SECRET_KEY
+      - key: LLM_PROVIDER
+        value: github
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+
+# NOTE: Render's connection string is `postgresql://…`; the app auto-rewrites it to
+# the async driver (`postgresql+asyncpg://…`) in config.py, so no manual prefix
+# needed. After the first deploy, set ALLOWED_ORIGINS to your frontend URL and add
+# the LLM secrets (GITHUB_TOKEN / GROQ_API_KEY). See DEPLOY.md.

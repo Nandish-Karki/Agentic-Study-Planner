@@ -29,6 +29,13 @@ outputs/
 # Demo event log — contains volunteered emails + feedback, never commit
 demo/events.jsonl
 
+# Frontend (Vite/React)
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/*.local
+
 # IDE
 .vscode/
 .idea/

@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-ink text-white font-inter antialiased;
+}
+
+.font-podium {
+  font-family: "FSP DEMO - PODIUM Sharp 4.11", system-ui, sans-serif;
+}
+
+@layer utilities {
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(30px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  .animate-fade-up {
+    opacity: 0;
+    animation: fade-up 0.8s ease-out forwards;
+  }
+  .animate-fade-up-delay-1 {
+    opacity: 0;
+    animation: fade-up 0.8s ease-out 0.2s forwards;
+  }
+  .animate-fade-up-delay-2 {
+    opacity: 0;
+    animation: fade-up 0.8s ease-out 0.4s forwards;
+  }
+  .animate-fade-up-delay-3 {
+    opacity: 0;
+    animation: fade-up 0.8s ease-out 0.6s forwards;
+  }
+  .animate-fade-up-delay-4 {
+    opacity: 0;
+    animation: fade-up 0.8s ease-out 0.8s forwards;
+  }
+  .animate-fade-in {
+    opacity: 0;
+    animation: fade-in 0.6s ease-out forwards;
+  }
+}
+
+/* Plan markdown rendering */
+.prose-plan h1,
+.prose-plan h2,
+.prose-plan h3 {
+  @apply font-semibold text-white mt-6 mb-2;
+}
+.prose-plan h1 {
+  @apply text-2xl;
+}
+.prose-plan h2 {
+  @apply text-xl;
+}
+.prose-plan h3 {
+  @apply text-lg;
+}
+.prose-plan p {
+  @apply text-slate-300 my-2 leading-relaxed;
+}
+.prose-plan ul {
+  @apply list-disc pl-6 text-slate-300 my-2;
+}
+.prose-plan table {
+  @apply w-full my-4 text-sm border-collapse;
+}
+.prose-plan th {
+  @apply text-left px-3 py-2 bg-white/5 text-slate-200 border border-white/10;
+}
+.prose-plan td {
+  @apply px-3 py-2 text-slate-300 border border-white/10;
+}
+.prose-plan strong {
+  @apply text-white;
+}
+.prose-plan code {
+  @apply text-indigo-300;
+}
