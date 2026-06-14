@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Study Planner — your degree, planned around the job you want</title>
+  <meta name="description" content="Upload your transcript and module handbook. Five AI agents draft a semester-by-semester study plan that closes the gap to your target role — and every plan is automatically checked for broken rules." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style> html { scroll-behavior: smooth; } </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased">
+
+  <!-- ===== CONFIG: replace the two placeholders below before deploying =====
+       1. FORM_ENDPOINT  — a Formspree (or similar) endpoint for the waitlist.
+                           Create a free form at https://formspree.io and paste
+                           its URL into every <form action="..."> below.
+       2. DEMO_URL       — your deployed Streamlit demo URL (demo/app.py).
+       Search this file for FORM_ENDPOINT and DEMO_URL.                       -->
+
+  <!-- Hero -->
+  <header class="max-w-3xl mx-auto px-6 pt-20 pb-12 text-center">
+    <p class="text-sm font-semibold tracking-wide text-indigo-600 uppercase">For students with electives to choose</p>
+    <h1 class="mt-3 text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900">
+      Plan your degree around the job you actually want.
+    </h1>
+    <p class="mt-5 text-lg text-slate-600">
+      Upload your transcript and module handbook. Five AI agents read them, find the
+      skills your target role needs that you don't have yet, and draft a
+      <span class="font-semibold text-slate-800">semester-by-semester plan</span>
+      to close the gap — without inventing modules or breaking prerequisites.
+    </p>
+    <div class="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
+      <a href="#waitlist" class="px-6 py-3 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition">Join the waitlist</a>
+      <a href="DEMO_URL" class="px-6 py-3 rounded-lg bg-white border border-slate-300 font-semibold hover:bg-slate-100 transition">Try the live demo →</a>
+    </div>
+    <p class="mt-4 text-xs text-slate-400">Free early access · your documents are processed in memory and never stored</p>
+  </header>
+
+  <!-- How it works -->
+  <section class="max-w-4xl mx-auto px-6 py-12">
+    <div class="grid sm:grid-cols-3 gap-6">
+      <div class="bg-white rounded-xl p-6 border border-slate-200">
+        <div class="text-2xl">📄</div>
+        <h3 class="mt-3 font-semibold text-slate-900">1. Upload</h3>
+        <p class="mt-1 text-sm text-slate-600">Your transcript, your programme's module handbook, and the role you're aiming for.</p>
+      </div>
+      <div class="bg-white rounded-xl p-6 border border-slate-200">
+        <div class="text-2xl">🤖</div>
+        <h3 class="mt-3 font-semibold text-slate-900">2. Agents analyse</h3>
+        <p class="mt-1 text-sm text-slate-600">Five specialists extract your profile, the role's must-have skills, the real catalog, and your gaps.</p>
+      </div>
+      <div class="bg-white rounded-xl p-6 border border-slate-200">
+        <div class="text-2xl">✅</div>
+        <h3 class="mt-3 font-semibold text-slate-900">3. Validated plan</h3>
+        <p class="mt-1 text-sm text-slate-600">A semester plan where every module is real, nothing is retaken, and the credits add up — checked automatically.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Differentiator: the validator -->
+  <section class="max-w-3xl mx-auto px-6 py-10">
+    <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-6">
+      <h2 class="text-xl font-bold text-slate-900">Why trust an AI with your degree plan?</h2>
+      <p class="mt-2 text-slate-700">
+        Because we don't trust it blindly either. AI models sometimes invent a course or
+        break a rule. So every generated plan is run through a
+        <span class="font-semibold">deterministic checker</span> that confirms each module
+        exists in your handbook, isn't one you've already passed, respects prerequisites and
+        take-limits, and that the credits add up. If the AI slips, you see exactly where —
+        you never follow a broken plan.
+      </p>
+    </div>
+  </section>
+
+  <!-- Sample plan preview -->
+  <section class="max-w-3xl mx-auto px-6 py-10">
+    <h2 class="text-center text-sm font-semibold tracking-wide text-slate-500 uppercase">A glance at the output</h2>
+    <div class="mt-4 bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div class="px-5 py-3 bg-slate-900 text-slate-100 text-sm font-semibold flex items-center justify-between">
+        <span>Semester 3 — closing your Data Engineering gaps</span>
+        <span class="text-emerald-400">✅ validated</span>
+      </div>
+      <table class="w-full text-sm">
+        <thead class="text-left text-slate-500 border-b border-slate-200">
+          <tr><th class="px-5 py-2 font-medium">Module</th><th class="px-5 py-2 font-medium">CP</th><th class="px-5 py-2 font-medium">Closes gap</th></tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr><td class="px-5 py-2">Big Data Engineering</td><td class="px-5 py-2">6</td><td class="px-5 py-2 text-slate-500">ETL / Spark / Airflow</td></tr>
+          <tr><td class="px-5 py-2">Data Warehouse Technologies</td><td class="px-5 py-2">6</td><td class="px-5 py-2 text-slate-500">Dimensional modeling</td></tr>
+          <tr><td class="px-5 py-2">Stream Processing</td><td class="px-5 py-2">6</td><td class="px-5 py-2 text-slate-500">Kafka / Flink</td></tr>
+        </tbody>
+        <tfoot class="border-t border-slate-200 text-slate-700 font-semibold"><tr><td class="px-5 py-2">Total</td><td class="px-5 py-2">18</td><td class="px-5 py-2"></td></tr></tfoot>
+      </table>
+    </div>
+  </section>
+
+  <!-- Waitlist -->
+  <section id="waitlist" class="max-w-xl mx-auto px-6 py-14 text-center">
+    <h2 class="text-2xl font-bold text-slate-900">Get early access</h2>
+    <p class="mt-2 text-slate-600">We're building this now. Leave your email and we'll let you know the moment it's ready.</p>
+    <form action="FORM_ENDPOINT" method="POST" class="mt-6 flex flex-col sm:flex-row gap-3">
+      <input type="email" name="email" required placeholder="you@university.edu"
+             class="flex-1 px-4 py-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      <input type="hidden" name="source" value="landing-waitlist" />
+      <button type="submit" class="px-6 py-3 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition">Notify me</button>
+    </form>
+    <p class="mt-3 text-xs text-slate-400">No spam. One email at launch.</p>
+  </section>
+
+  <!-- Fake-door pricing probe -->
+  <section class="max-w-4xl mx-auto px-6 py-12">
+    <h2 class="text-center text-2xl font-bold text-slate-900">What would you pay?</h2>
+    <p class="text-center mt-2 text-slate-600">Honest answers shape what we build. Pick the tier you'd actually use.</p>
+    <div class="mt-8 grid sm:grid-cols-3 gap-6">
+      <!-- each "choose" submits the chosen price to the same form endpoint -->
+      <div class="bg-white rounded-xl border border-slate-200 p-6 flex flex-col">
+        <h3 class="font-bold text-slate-900">Free</h3>
+        <p class="mt-1 text-3xl font-extrabold text-slate-900">€0</p>
+        <p class="mt-2 text-sm text-slate-600 flex-1">One study plan. See it, download it.</p>
+        <form action="FORM_ENDPOINT" method="POST">
+          <input type="hidden" name="source" value="pricing" /><input type="hidden" name="price" value="0" />
+          <input type="email" name="email" required placeholder="email" class="w-full mb-2 px-3 py-2 text-sm rounded border border-slate-300" />
+          <button class="w-full py-2 rounded-lg border border-slate-300 font-semibold hover:bg-slate-100">I'd use this</button>
+        </form>
+      </div>
+      <div class="bg-white rounded-xl border-2 border-indigo-500 p-6 flex flex-col relative">
+        <span class="absolute -top-3 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-xs px-3 py-1 rounded-full">most likely</span>
+        <h3 class="font-bold text-slate-900">Student</h3>
+        <p class="mt-1 text-3xl font-extrabold text-slate-900">€5<span class="text-base font-medium text-slate-500">/mo</span></p>
+        <p class="mt-2 text-sm text-slate-600 flex-1">Unlimited re-plans, what-if scenarios, PDF + calendar export.</p>
+        <form action="FORM_ENDPOINT" method="POST">
+          <input type="hidden" name="source" value="pricing" /><input type="hidden" name="price" value="5" />
+          <input type="email" name="email" required placeholder="email" class="w-full mb-2 px-3 py-2 text-sm rounded border border-slate-300" />
+          <button class="w-full py-2 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700">I'd pay this</button>
+        </form>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-200 p-6 flex flex-col">
+        <h3 class="font-bold text-slate-900">Department</h3>
+        <p class="mt-1 text-3xl font-extrabold text-slate-900">Let's talk</p>
+        <p class="mt-2 text-sm text-slate-600 flex-1">For advisors: plan with every student, your handbook, your rules.</p>
+        <form action="FORM_ENDPOINT" method="POST">
+          <input type="hidden" name="source" value="pricing" /><input type="hidden" name="price" value="b2b" />
+          <input type="email" name="email" required placeholder="work email" class="w-full mb-2 px-3 py-2 text-sm rounded border border-slate-300" />
+          <button class="w-full py-2 rounded-lg border border-slate-300 font-semibold hover:bg-slate-100">Book a pilot</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <footer class="max-w-3xl mx-auto px-6 py-10 text-center text-xs text-slate-400 border-t border-slate-200">
+    <p>Your documents are processed in memory to generate your plan and are not stored.
+       Plan generation uses a third-party AI provider. Early demo — not affiliated with any university.</p>
+    <p class="mt-2">Built by Nandish Karki · M.Sc. Data &amp; Knowledge Engineering, OvGU Magdeburg</p>
+  </footer>
+
+</body>
+</html>
