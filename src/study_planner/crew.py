@@ -1,84 +1,12 @@
-import os
-import re
-import time
-import litellm
-from crewai import Agent, Crew, Process, Task, LLM
+from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task
 
+from study_planner.llm_config import get_llms, ensure_litellm_patched
 from study_planner.tools.pdf_tools import (
     list_input_files,
     read_document,
     search_document,
 )
-
-# ─── LiteLLM patches (ported from agent-workshop, proven 2026-06-11) ──────────
-# 1. CrewAI 1.14.x leaks an internal `cache_breakpoint` message property that
-#    some providers reject — strip it.
-# 2. Retry on rate-limit using the wait time the provider suggests.
-_original_completion = litellm.completion
-
-
-def _patched_completion(*args, **kwargs):
-    for m in kwargs.get("messages") or []:
-        if isinstance(m, dict):
-            m.pop("cache_breakpoint", None)
-
-    for attempt in range(5):
-        try:
-            return _original_completion(*args, **kwargs)
-        except Exception as e:
-            err = str(e)
-            if "rate_limit" in err.lower() or "429" in err:
-                m = re.search(r"try again in ([\d.]+)s", err)
-                wait = float(m.group(1)) + 2 if m else 20 * (attempt + 1)
-                print(f"[rate limit] waiting {wait:.0f}s (attempt {attempt+1}/5)…")
-                time.sleep(wait)
-            else:
-                raise
-    return _original_completion(*args, **kwargs)
-
-
-litellm.completion = _patched_completion
-
-# ─── LLM provider switch (LLM_PROVIDER in .env: mixed | github | groq) ────────
-# Free-tier limits force a split strategy:
-#   GitHub Models: 8k tokens/request hard cap  → too small for document-reading agents
-#   Groq:          12k tokens/request, 100k/day → fits documents, but daily budget
-# "mixed" (default): tool agents on Groq (big contexts), synthesis on GitHub gpt-4o
-#   (compact contexts) — uses each quota where it fits.
-
-def _key_for(model: str) -> str:
-    """Resolve the API key from the model's provider prefix."""
-    if model.startswith("github/"):
-        key = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_API_KEY")
-        if not key:
-            raise ValueError(f"model {model} needs GITHUB_TOKEN in .env")
-    elif model.startswith("groq/"):
-        key = os.getenv("GROQ_API_KEY")
-        if not key:
-            raise ValueError(f"model {model} needs GROQ_API_KEY in .env")
-    else:
-        raise ValueError(f"unsupported provider prefix in model: {model}")
-    return key
-
-
-_provider = os.getenv("LLM_PROVIDER", "mixed").lower()
-
-_defaults = {
-    "mixed":  ("groq/llama-3.3-70b-versatile", "github/gpt-4o"),
-    "github": ("github/gpt-4o-mini", "github/gpt-4o"),
-    "groq":   ("groq/llama-3.3-70b-versatile", "groq/llama-3.3-70b-versatile"),
-}
-if _provider not in _defaults:
-    raise ValueError(f"LLM_PROVIDER must be one of {list(_defaults)} — got {_provider!r}")
-
-_fast_model = os.getenv("LLM_MODEL_FAST", _defaults[_provider][0])
-_smart_model = os.getenv("LLM_MODEL_SMART", _defaults[_provider][1])
-
-print(f"[llm config] provider={_provider}  fast={_fast_model}  smart={_smart_model}")
-
-llm_fast = LLM(model=_fast_model, api_key=_key_for(_fast_model), temperature=0.2)
-llm_smart = LLM(model=_smart_model, api_key=_key_for(_smart_model), temperature=0.2)
 
 
 # ─── Crew ─────────────────────────────────────────────────────────────────────
@@ -86,10 +14,19 @@ llm_smart = LLM(model=_smart_model, api_key=_key_for(_smart_model), temperature=
 @CrewBase
 class StudyPlannerCrew:
     """5-agent study planner: three parallel analyses (profile, career,
-    modules) feed a gap analysis and a semester-wise plan synthesis."""
+    modules) feed a gap analysis and a semester-wise plan synthesis.
+
+    LLM config and the litellm patch are resolved lazily in __init__ (not at
+    import time) so importing this module has no global side effects — required
+    for the multi-user worker, where many crews are built per process."""
 
     agents_config = "config/agents.yaml"
     tasks_config = "config/tasks.yaml"
+
+    def __init__(self):
+        super().__init__()
+        ensure_litellm_patched()
+        self._llm_fast, self._llm_smart = get_llms()
 
     # ── Agents ──────────────────────────────────────────────────────────────
 
@@ -98,7 +35,7 @@ class StudyPlannerCrew:
         return Agent(
             config=self.agents_config["profile_analyst"],
             tools=[read_document, list_input_files],
-            llm=llm_fast,
+            llm=self._llm_fast,
             verbose=True,
         )
 
@@ -107,7 +44,7 @@ class StudyPlannerCrew:
         return Agent(
             config=self.agents_config["career_analyst"],
             tools=[read_document, list_input_files],
-            llm=llm_fast,
+            llm=self._llm_fast,
             verbose=True,
         )
 
@@ -116,7 +53,7 @@ class StudyPlannerCrew:
         return Agent(
             config=self.agents_config["module_curator"],
             tools=[read_document, search_document],
-            llm=llm_fast,
+            llm=self._llm_fast,
             verbose=True,
         )
 
@@ -126,7 +63,7 @@ class StudyPlannerCrew:
         return Agent(
             config=self.agents_config["gap_analyst"],
             tools=[],
-            llm=llm_smart,
+            llm=self._llm_smart,
             verbose=True,
         )
 
@@ -136,7 +73,7 @@ class StudyPlannerCrew:
         return Agent(
             config=self.agents_config["study_planner"],
             tools=[],
-            llm=llm_smart,
+            llm=self._llm_smart,
             verbose=True,
         )
 

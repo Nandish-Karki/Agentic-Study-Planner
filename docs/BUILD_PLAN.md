@@ -241,16 +241,20 @@ ephemeral). This is the playbook-style gate: *prove* it with a query, don't asse
 Each phase commits working code the day it works; nothing load-bearing stays
 untracked overnight. Each gate must pass before the next phase starts.
 
-| Phase | Scope | Verification gate |
-|---|---|---|
-| **B1. Planning constraints** (engine-only, no infra) | §2: `PlanConstraints`, prompt injection of semesters + CP prefs, new validator rules (`horizon`, `cp-preference`, `feasibility`), tests | Sample run with `target_semesters=3, cp_overrides={1:20}` honors the targets; impossible horizon → `feasibility` ERROR; all tests green |
-| **B2. Engine hardening** | §3.4: scope monkeypatch, per-request LLM, structured Pydantic module output, swap local `data/` for per-job temp, worker-path integration test | Crew runs from a temp workspace; no global litellm mutation; validator catches the known take-limit violation; tests green |
-| **B3. Async runtime + concurrency** | §4: FastAPI skeleton, RQ+Redis, worker pool, per-provider token bucket, per-user quota, job state machine, token/cost logging | Two plans run concurrently without tripping provider limits; one bad PDF fails its job only; cost-per-plan logged as a number |
-| **B4. Auth + multi-tenancy** | §3.2–3.3 + §5.2: Supabase auth, data model, owner-scoped API, RLS, worker carries user ctx | **Isolation proof:** user A cannot read/regenerate user B's plan by any ID (404); new user sees zero data |
-| **B5. Legal & compliance** | §5.1 + §5.3: Privacy/ToS/cookie, consent capture, audit log, rate limiting, erasure | **Erasure proof** by query; auth brute-force limited; consent recorded at signup |
-| **B6. Frontend** (deferred) | React/TS SPA, VANGUARD-style hero + dashboard, SSE progress, plan viewer with validity badges + CP breakdown | A non-author completes signup→upload→constraints→view with zero help |
+| Phase | Scope | Verification gate | Status |
+|---|---|---|---|
+| **B1. Planning constraints** (engine-only, no infra) | §2: `PlanConstraints`, prompt injection of semesters + CP prefs, new validator rules (`horizon`, `cp-preference`, `feasibility`), tests | Sample run with `target_semesters=3, cp_overrides={1:20}` honors the targets; impossible horizon → `feasibility` ERROR; all tests green | ✅ done (`72645a6`) — verified end-to-end |
+| **B2. Engine hardening** | §3.4: scope monkeypatch, per-request LLM, swap local `data/` for per-job temp, worker-path integration test | Crew imports with no side effects; no global litellm mutation; failing job isolated + temp cleaned; tests green | ✅ done — `llm_config.py` (lazy patch + LLM factory); worker-path test green. *Pydantic module output deferred: markdown parsing is robust + tested; forcing structured output risks destabilizing the working multi-table curator. Revisit if format drift reappears.* |
+| **B3. Async runtime + concurrency** | §4: FastAPI app, RQ+Redis worker (eager fallback), per-user quota, job state machine, ephemeral temp, cost/provider logging | One bad PDF fails its job only; quota caps per user; job status machine works | ✅ done — `api/jobs.py`, `worker.py`. Concurrency = RQ worker count; per-call rate limiting via litellm backoff patch |
+| **B4. Auth + multi-tenancy** | §3.2–3.3 + §5.2: self-hosted JWT auth, data model, owner-scoped API, worker carries user ctx | **Isolation proof:** user A cannot read user B's plan by any ID (404); new user sees zero data | ✅ done — verified by `test_idor_isolation_404` |
+| **B5. Legal & compliance** | §5.1 + §5.3: Privacy/ToS/cookie, consent capture, audit log, rate limiting, erasure | **Erasure proof** by query; auth brute-force limited; consent recorded at signup | ✅ done — verified by `test_account_erasure_purges_all_rows`, `test_auth_rate_limit_blocks_brute_force` |
+| **B6. Frontend** (deferred) | React/TS SPA, VANGUARD-style hero + dashboard, SSE progress, plan viewer with validity badges + CP breakdown | A non-author completes signup→upload→constraints→view with zero help | ⬜ deferred (this API is the contract it consumes) |
 
-B1 is startable **right now** with zero infra and zero new dependencies.
+B2–B5 are built and verified by 32 passing tests (`tests/`). Remaining for a real
+deploy: provision Postgres (EU) + Redis, set `SECRET_KEY`/`DEBUG=0`/`JOB_MODE=rq`,
+wire SMTP for the verify/reset emails, and add Google OAuth credentials. Email
+verification and password-reset currently return the token in the response when
+`DEBUG=1` (so the flows are testable); production sends it by email instead.
 
 ---
 

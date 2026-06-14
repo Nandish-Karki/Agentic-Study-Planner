@@ -21,6 +21,11 @@ build/
 # Outputs (regenerated each run)
 outputs/
 
+# Local databases (dev SQLite; prod uses Postgres)
+*.db
+*.sqlite
+*.sqlite3
+
 # Demo event log — contains volunteered emails + feedback, never commit
 demo/events.jsonl
 
