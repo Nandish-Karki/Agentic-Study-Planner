@@ -143,6 +143,7 @@ class CatalogModule:
     cp: int | None
     prerequisites: str
     take_limit: int | None  # e.g. "at most twice" → 2
+    thematic_area: str = ""
 
 
 @dataclass
@@ -168,18 +169,42 @@ def parse_catalog(catalog_md: str) -> dict[str, CatalogModule]:
             continue
         cpcol = _find_col(t.headers, "cp", "credit", "ects")
         prereqcol = _find_col(t.headers, "prerequisite", "prereq")
+        areacol = _find_col(t.headers, "thematic area", "area", "subject area", "category")
         for row in t.rows:
             name = row.get(mcol, "").strip()
             if not name or _norm(name) in {"module", "name"}:
                 continue
             prereq = row.get(prereqcol, "") if prereqcol else ""
+            area = row.get(areacol, "") if areacol else ""
             out[_norm(name)] = CatalogModule(
                 name=name,
                 cp=_to_int(row.get(cpcol, "")) if cpcol else None,
                 prerequisites=prereq,
                 take_limit=_parse_take_limit(prereq + " " + " ".join(row.values())),
+                thematic_area=area if area.lower() not in {"n/a", "na", ""} else "",
             )
     return out
+
+
+def parse_area_budgets(catalog_md: str) -> dict[str, tuple[str, int, int]]:
+    """Extract the area CP budget table the curator outputs.
+
+    Returns {normalized_area_name: (original_name, min_cp, max_cp)}.
+    """
+    budgets: dict[str, tuple[str, int, int]] = {}
+    for t in parse_markdown_tables(catalog_md):
+        area_col = _find_col(t.headers, "thematic area", "area", "subject area")
+        min_col = _find_col(t.headers, "min", "minimum")
+        max_col = _find_col(t.headers, "max", "maximum")
+        if not (area_col and min_col and max_col):
+            continue
+        for row in t.rows:
+            area = row.get(area_col, "").strip()
+            mn = _to_int(row.get(min_col, ""))
+            mx = _to_int(row.get(max_col, ""))
+            if area and mn is not None and mx is not None:
+                budgets[_norm(area)] = (area, mn, mx)
+    return budgets
 
 
 _NUM_WORDS = {"once": 1, "twice": 2, "two": 2, "three": 3, "thrice": 3}
@@ -391,6 +416,32 @@ def validate_plan(plan_md: str, catalog_md: str, profile_md: str = "") -> Valida
                     rep.findings.append(Finding("WARNING", "prerequisite",
                         f"'{m.name}' ({sem.label}) needs '{prereq}', which is "
                         f"neither completed nor scheduled earlier"))
+
+    # 5. thematic-area CP budgets
+    area_budgets = parse_area_budgets(catalog_md)
+    if area_budgets:
+        area_cp: dict[str, int] = {}
+        area_display: dict[str, str] = {}
+        for sem in semesters:
+            for m in sem.modules:
+                match, score = _best_match(m.name, catalog_names) if catalog_names else (None, 0)
+                if not match or score < NAME_MATCH_THRESHOLD:
+                    continue
+                cm = catalog.get(_norm(match))
+                if cm and cm.thematic_area:
+                    key = _norm(cm.thematic_area)
+                    area_cp[key] = area_cp.get(key, 0) + (m.cp or 0)
+                    area_display[key] = cm.thematic_area
+        for norm_area, (orig_name, mn, mx) in area_budgets.items():
+            total = area_cp.get(norm_area, 0)
+            display = area_display.get(norm_area, orig_name)
+            if total < mn:
+                rep.findings.append(Finding("ERROR", "area-budget",
+                    f"'{display}': {total} CP planned but minimum is {mn} CP"))
+            elif total > mx:
+                rep.findings.append(Finding("ERROR", "area-budget",
+                    f"'{display}': {total} CP planned exceeds maximum of {mx} CP"))
+        rep.stats["area_cp"] = {area_display.get(k, k): v for k, v in area_cp.items()}
 
     return rep
 

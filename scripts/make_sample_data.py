@@ -138,40 +138,55 @@ def make_career():
     d.output(OUT / "career.pdf")
 
 
+AREA_BUDGETS = [
+    # thematic area, min CP, max CP
+    ["Fundamentals of Data Science", "12", "18"],
+    ["Learning Methods & Models", "18", "36"],
+    ["Data Processing for Data Science", "18", "30"],
+    ["Applied Data Science", "18", "24"],
+]
+
 HANDBOOK_MODULES = [
-    # name, CP, offered, skills, prerequisites
-    ["Advanced Databases", "6", "Winter", "SQL, query optimization, indexing, transactions", "none"],
-    ["Machine Learning Foundations", "6", "Winter", "Supervised learning, model evaluation, scikit-learn", "none"],
-    ["Distributed Systems", "6", "Winter", "Replication, consensus, fault tolerance", "none"],
-    ["Cloud Computing", "6", "Winter", "IaaS/PaaS, virtualization, containers, Docker", "none"],
-    ["Data Warehouse Technologies", "6", "Winter", "Dimensional modeling, OLAP, ELT processes", "Advanced Databases"],
-    ["Stream Processing", "6", "Winter", "Kafka, Flink, real-time pipelines, windowing", "Big Data Engineering"],
-    ["Database Systems Implementation", "6", "Winter", "Storage engines, query execution, buffer management", "Advanced Databases"],
-    ["Information Retrieval", "6", "Winter", "Search engines, ranking, text indexing", "none"],
-    ["Data Mining I", "6", "Summer", "Clustering, association rules, anomaly detection", "none"],
-    ["Big Data Engineering", "6", "Summer", "Spark, ETL pipeline design, data lakes, Airflow", "Advanced Databases"],
-    ["Advanced Machine Learning", "6", "Summer", "Deep learning, ensembles, hyperparameter tuning", "Machine Learning Foundations"],
-    ["Software Engineering for Data Science", "6", "Summer", "Testing, CI/CD, clean code, agile practices", "none"],
-    ["MLOps in Practice", "6", "Summer", "CI/CD for ML, model serving, monitoring, MLflow", "Machine Learning Foundations"],
-    ["Data Visualization", "3", "Summer", "Dashboards, visual analytics, data storytelling", "none"],
-    ["Scientific Team Project", "6", "Winter & Summer", "Team-based applied research project", "none; at most twice"],
-    ["Seminar Data Engineering", "3", "Winter & Summer", "Literature research, scientific writing, presentation", "none; at most twice"],
-    ["Master Thesis", "30", "Winter & Summer", "Independent scientific research", "60 CP completed"],
+    # name, CP, offered, skills, prerequisites, thematic area
+    ["Advanced Databases", "6", "Winter", "SQL, query optimization, indexing, transactions", "none", "Fundamentals of Data Science"],
+    ["Machine Learning Foundations", "6", "Winter", "Supervised learning, model evaluation, scikit-learn", "none", "Fundamentals of Data Science"],
+    ["Distributed Systems", "6", "Winter", "Replication, consensus, fault tolerance", "none", "Fundamentals of Data Science"],
+    ["Cloud Computing", "6", "Winter", "IaaS/PaaS, virtualization, containers, Docker", "none", "Fundamentals of Data Science"],
+    ["Data Mining I", "6", "Summer", "Clustering, association rules, anomaly detection", "none", "Learning Methods & Models"],
+    ["Information Retrieval", "6", "Winter", "Search engines, ranking, text indexing", "none", "Learning Methods & Models"],
+    ["Advanced Machine Learning", "6", "Summer", "Deep learning, ensembles, hyperparameter tuning", "Machine Learning Foundations", "Learning Methods & Models"],
+    ["Database Systems Implementation", "6", "Winter", "Storage engines, query execution, buffer management", "Advanced Databases", "Learning Methods & Models"],
+    ["Big Data Engineering", "6", "Summer", "Spark, ETL pipeline design, data lakes, Airflow", "Advanced Databases", "Data Processing for Data Science"],
+    ["Stream Processing", "6", "Winter", "Kafka, Flink, real-time pipelines, windowing", "Big Data Engineering", "Data Processing for Data Science"],
+    ["Data Warehouse Technologies", "6", "Winter", "Dimensional modeling, OLAP, ELT processes", "Advanced Databases", "Data Processing for Data Science"],
+    ["MLOps in Practice", "6", "Summer", "CI/CD for ML, model serving, monitoring, MLflow", "Machine Learning Foundations", "Data Processing for Data Science"],
+    ["Software Engineering for Data Science", "6", "Summer", "Testing, CI/CD, clean code, agile practices", "none", "Applied Data Science"],
+    ["Data Visualization", "3", "Summer", "Dashboards, visual analytics, data storytelling", "none", "Applied Data Science"],
+    ["Scientific Team Project", "6", "Winter & Summer", "Team-based applied research project", "none; at most twice", "Applied Data Science"],
+    ["Seminar Data Engineering", "3", "Winter & Summer", "Literature research, scientific writing, presentation", "none; at most twice", "Applied Data Science"],
+    ["Master Thesis", "30", "Winter & Summer", "Independent scientific research", "60 CP completed", "Master Thesis"],
 ]
 
 
 def make_handbook():
     d = Doc()
     d.h1("Module Handbook (excerpt) - M.Sc. Data & Knowledge Engineering")
-    d.p("Fictional excerpt for testing. Programme structure: 120 CP total = 90 CP "
-        "coursework + 30 CP master thesis. Recommended workload: ~30 CP per semester. "
-        "All modules below are selectable electives unless prerequisites state otherwise.")
+    d.p("Programme structure: 120 CP total = 90 CP coursework + 30 CP master thesis. "
+        "Recommended workload: ~30 CP per semester.")
+
+    d.h2("Thematic Area CP Requirements")
+    d.p("Each student must earn credits within the following thematic areas:")
+    d.table(
+        ["Thematic Area", "Min CP", "Max CP"],
+        AREA_BUDGETS,
+        [100, 35, 35],
+    )
 
     d.h2("Selectable Modules")
     d.table(
-        ["Module", "CP", "Offered", "Key skills taught", "Prerequisites"],
+        ["Module", "CP", "Offered", "Key skills taught", "Prerequisites", "Thematic Area"],
         HANDBOOK_MODULES,
-        [48, 11, 26, 65, 40],
+        [44, 10, 24, 54, 38, 40],
     )
 
     d.h2("Notes")

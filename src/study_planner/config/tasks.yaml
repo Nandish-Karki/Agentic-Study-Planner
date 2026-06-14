@@ -25,12 +25,22 @@ modules_task:
     Read the module handbook ({data_dir}/module_handbook.pdf) using read_document.
     If truncated, use search_document with the full path to retrieve the
     remaining modules, e.g. "Machine Learning::{data_dir}/module_handbook.pdf".
-    Produce a Markdown table of ALL selectable modules:
-    | Module | CP | Semester offered | Key skills taught | Prerequisites |
-    List only modules that actually appear in the handbook. Write "n/a" for
-    missing details. Do not editorialise — just the table.
+
+    Produce TWO Markdown tables and nothing else:
+
+    Table 1 — Module catalog, one row per selectable module:
+    | Module | CP | Semester offered | Key skills taught | Prerequisites | Thematic Area |
+    Fill "Thematic Area" from the subject area or category the module belongs to
+    in the handbook (e.g. "Fundamentals of Data Science"). Write "n/a" if not stated.
+    List only modules that actually appear in the handbook. Do not editorialise.
+
+    Table 2 — Area CP budgets from the programme structure section:
+    | Thematic Area | Min CP | Max CP |
+    Extract the required credit-point range for each area from the handbook.
+    Omit rows where no explicit range is given.
   expected_output: >
-    A complete Markdown module table with one row per module from the handbook.
+    Two Markdown tables: (1) complete module catalog with Thematic Area column,
+    (2) area CP budget table listing Min CP and Max CP per thematic area.
   agent: module_curator
 
 gap_task:
@@ -56,6 +66,9 @@ plan_task:
     - Do not include modules the student has already completed (check the transcript table)
     - Aim for roughly 30 ECTS per semester; respect prerequisites and semester offerings
     - Cover the highest-priority skill gaps first
+    - Respect the per-area CP budget from the curator's area-budget table: the total CP
+      you assign to each thematic area across ALL semesters must fall within that area's
+      Min CP–Max CP range. Show the running area totals in the Thesis/electives section.
     Output sections:
     1. **Summary** (2-3 sentences: where the student is, where they're heading)
     2. **Semester plans** — one subsection per remaining semester with a table:

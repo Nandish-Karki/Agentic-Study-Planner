@@ -9,6 +9,7 @@ from study_planner.validate import (
     validate_plan,
     parse_markdown_tables,
     parse_catalog,
+    parse_area_budgets,
     parse_plan,
     parse_completed,
     _parse_take_limit,
@@ -150,6 +151,53 @@ def test_prerequisite_scheduled_earlier_ok():
     )
     rep = validate_plan(plan, CATALOG_MD, PROFILE_MD)
     assert not any(f.rule == "prerequisite" for f in rep.warnings), rep.summary()
+
+
+# ─── area budgets ──────────────────────────────────────────────────────────────
+
+CATALOG_WITH_AREAS = """
+| Module | CP | Semester offered | Key skills taught | Prerequisites | Thematic Area |
+|---|---|---|---|---|---|
+| Advanced Databases | 6 | Winter | SQL | none | Fundamentals of Data Science |
+| Machine Learning Foundations | 6 | Winter | ML | none | Fundamentals of Data Science |
+| Big Data Engineering | 6 | Summer | Spark | Advanced Databases | Data Processing |
+| Data Visualization | 3 | Summer | dashboards | none | Applied Data Science |
+| Scientific Team Project | 6 | Winter & Summer | teamwork | none; at most twice | Applied Data Science |
+
+| Thematic Area | Min CP | Max CP |
+|---|---|---|
+| Fundamentals of Data Science | 12 | 18 |
+| Data Processing | 6 | 18 |
+| Applied Data Science | 6 | 12 |
+"""
+
+
+def test_parse_area_budgets():
+    budgets = parse_area_budgets(CATALOG_WITH_AREAS)
+    assert budgets["fundamentals of data science"] == ("Fundamentals of Data Science", 12, 18)
+    assert budgets["data processing"] == ("Data Processing", 6, 18)
+
+
+def test_area_budget_under_minimum_flagged():
+    # Only Big Data Engineering (Data Processing area) is planned.
+    # Fundamentals (min 12) and Applied Data Science (min 6) have 0 CP → both flagged.
+    plan = _plan("| Module | CP | Why |\n|---|---|---|\n| Big Data Engineering | 6 | x |\n\n**Total CP:** 6")
+    rep = validate_plan(plan, CATALOG_WITH_AREAS, "")
+    budget_errors = [f for f in rep.findings if f.rule == "area-budget"]
+    assert len(budget_errors) >= 2, rep.summary()
+    messages = " ".join(f.message for f in budget_errors)
+    assert "Fundamentals of Data Science" in messages, rep.summary()
+
+
+def test_area_budget_within_range_passes():
+    plan = _plan(
+        "| Module | CP | Why |\n|---|---|---|\n"
+        "| Advanced Databases | 6 | x |\n"
+        "| Machine Learning Foundations | 6 | x |\n\n**Total CP:** 12"
+    )
+    rep = validate_plan(plan, CATALOG_WITH_AREAS, "")
+    budget_errors = [f for f in rep.findings if f.rule == "area-budget" and "Fundamentals" in f.message]
+    assert not budget_errors, rep.summary()
 
 
 # ─── integration: the committed sample output ──────────────────────────────────
