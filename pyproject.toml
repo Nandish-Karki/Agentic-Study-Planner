@@ -2,7 +2,7 @@
 name = "study-planner"
 version = "0.1.0"
 description = "Agentic study planner — 5 CrewAI agents that read a CV, transcript, career path, and module handbook to generate a semester-wise study plan"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "crewai>=1.14.0",
     "litellm>=1.88.0",
