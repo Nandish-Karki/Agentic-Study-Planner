@@ -235,15 +235,12 @@ def render_survey():
     with st.form("wtp"):
         would_use = st.radio("Would you actually use this to plan your semesters?",
                              ["Yes", "Maybe", "No"], horizontal=True, index=1)
-        price = st.radio(
-            "What would you pay for unlimited re-plans + PDF/calendar export?",
-            ["€0 — free only", "€3", "€5", "€9", "More"], horizontal=True, index=0)
         advisor = st.text_input(
             "Are you a study advisor / work at a university? Leave an email to "
             "talk about a pilot (optional):", placeholder="optional")
         comment = st.text_area("Anything wrong with the plan, or missing? (optional)")
         if st.form_submit_button("Submit feedback", type="primary"):
-            log_event("wtp_response", would_use=would_use, price=price,
+            log_event("wtp_response", would_use=would_use, price="free",
                       advisor_contact=advisor.strip(), comment=comment.strip()[:500])
             ss.stage = "done"
             st.rerun()
