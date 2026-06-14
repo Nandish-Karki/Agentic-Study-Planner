@@ -35,6 +35,10 @@ frontend/dist/
 frontend/.env
 frontend/.env.local
 frontend/*.local
+# TS incremental build cache + files emitted from vite.config.ts by tsc -b
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # IDE
 .vscode/
