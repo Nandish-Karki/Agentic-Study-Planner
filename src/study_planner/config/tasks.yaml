@@ -69,6 +69,7 @@ plan_task:
     - Respect the per-area CP budget from the curator's area-budget table: the total CP
       you assign to each thematic area across ALL semesters must fall within that area's
       Min CP–Max CP range. Show the running area totals in the Thesis/electives section.
+    - Student constraints (honor these): {constraints}
     Output sections:
     1. **Summary** (2-3 sentences: where the student is, where they're heading)
     2. **Semester plans** — one subsection per remaining semester with a table:

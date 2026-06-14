@@ -125,9 +125,36 @@ def _pdf_preview(uploaded) -> str:
         return f"⚠️ could not read: {e}"
 
 
-def _run_plan(data_dir: str):
+def _run_plan(data_dir: str, constraints=None):
     from study_planner.main import plan_studies
-    return plan_studies(data_dir, save_report=False, validate=True)
+    return plan_studies(data_dir, save_report=False, validate=True,
+                        constraints=constraints)
+
+
+def _collect_constraints():
+    """Render the 'plan preferences' inputs and build a PlanConstraints.
+
+    These are the student's time horizon + credit-load wishes (BUILD_PLAN §2).
+    They steer the planner prompt AND get enforced by the deterministic validator.
+    """
+    from study_planner.inputs import PlanConstraints
+    st.markdown("**Your plan preferences**")
+    c1, c2 = st.columns(2)
+    degree = c1.selectbox("Degree", ["master", "bachelor"], index=0)
+    target = c2.number_input("Finish remaining coursework in… (semesters)",
+                             min_value=1, max_value=12, value=3, step=1)
+    c3, c4 = st.columns(2)
+    default_cp = c3.number_input("Preferred credits per semester (0 = let the AI decide)",
+                                 min_value=0, max_value=45, value=30, step=3)
+    next_cp = c4.number_input("Credits I specifically want NEXT semester (0 = no preference)",
+                              min_value=0, max_value=45, value=0, step=1)
+    overrides = {1: int(next_cp)} if next_cp else {}
+    return PlanConstraints(
+        degree_type=degree,
+        target_semesters=int(target),
+        default_cp_per_semester=int(default_cp) or None,
+        cp_overrides=overrides,
+    )
 
 
 def render_upload():
@@ -139,9 +166,10 @@ def render_upload():
 
     if use_sample:
         st.success("Using the bundled sample student. No personal data needed.")
+        constraints = _collect_constraints()
         if st.button("Generate my study plan →", type="primary"):
             log_event("demo_start", mode="sample")
-            _generate(str(SAMPLE_DIR))
+            _generate(str(SAMPLE_DIR), constraints)
         return
 
     cols = st.columns(2)
@@ -157,6 +185,7 @@ def render_upload():
         if up is not None:
             st.caption(f"**{label}:** {_pdf_preview(up)}")
 
+    constraints = _collect_constraints()
     ready = transcript and handbook and career
     if st.button("Generate my study plan →", type="primary", disabled=not ready):
         log_event("demo_start", mode="upload")
@@ -170,16 +199,16 @@ def render_upload():
                 (tmp / "cv.pdf").write_bytes(cv.getvalue())
             else:
                 (tmp / "cv.pdf").write_bytes(transcript.getvalue())  # fallback
-            _generate(str(tmp))
+            _generate(str(tmp), constraints)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)   # ephemeral: always delete
 
 
-def _generate(data_dir: str):
+def _generate(data_dir: str, constraints=None):
     with st.spinner("Five agents are reading your documents and drafting a plan — "
                     "this takes 1–2 minutes…"):
         try:
-            ss.result = _run_plan(data_dir)
+            ss.result = _run_plan(data_dir, constraints)
             ss.stage = "results"
             v = ss.result.get("validation")
             log_event("plan_completed",
@@ -220,9 +249,6 @@ def render_results():
 
     with st.expander("Skill-gap analysis"):
         st.markdown(res["skill_gaps"])
-
-    st.download_button("⬇️ Download plan (Markdown)",
-                       data=res["study_plan"], file_name="study_plan.md")
 
     st.markdown("---")
     render_survey()

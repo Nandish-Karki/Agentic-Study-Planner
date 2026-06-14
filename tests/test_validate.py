@@ -200,6 +200,75 @@ def test_area_budget_within_range_passes():
     assert not budget_errors, rep.summary()
 
 
+# ─── planning constraints (horizon / cp-preference / feasibility) ──────────────
+
+from study_planner.inputs import PlanConstraints
+
+
+def test_constraints_render_for_prompt():
+    c = PlanConstraints(target_semesters=3, cp_overrides={1: 20},
+                        default_cp_per_semester=30)
+    text = c.render_for_prompt()
+    assert "3 semester" in text and "semester 1: ~20 CP" in text and "~30 CP" in text
+
+
+def test_constraints_reject_bad_degree_and_horizon():
+    import pytest
+    with pytest.raises(ValueError):
+        PlanConstraints(degree_type="phd")
+    with pytest.raises(ValueError):
+        PlanConstraints(target_semesters=0)
+
+
+def test_horizon_exceeded_is_error():
+    # plan has 2 semesters, student wants to finish in 1
+    plan = _plan(
+        "| Module | CP | Why |\n|---|---|---|\n| Big Data Engineering | 6 | x |\n\n**Total CP:** 6",
+        "| Module | CP | Why |\n|---|---|---|\n| Data Mining I | 6 | x |\n\n**Total CP:** 6",
+    )
+    c = PlanConstraints(target_semesters=1)
+    rep = validate_plan(plan, CATALOG_MD, PROFILE_MD, c)
+    assert any(f.rule == "horizon" for f in rep.errors), rep.summary()
+
+
+def test_cp_preference_drift_warns():
+    # semester 1 target is 20 CP, plan puts 6 → drift > 3 → warning
+    plan = _plan(
+        "| Module | CP | Why |\n|---|---|---|\n| Big Data Engineering | 6 | x |\n\n**Total CP:** 6")
+    c = PlanConstraints(target_semesters=4, cp_overrides={1: 20})
+    rep = validate_plan(plan, CATALOG_MD, PROFILE_MD, c)
+    assert any(f.rule == "cp-preference" for f in rep.warnings), rep.summary()
+
+
+def test_cp_preference_on_target_no_warning():
+    # semester 1 target 18, plan has 18 → within tolerance, no cp-preference warning
+    plan = _plan(
+        "| Module | CP | Why |\n|---|---|---|\n"
+        "| Big Data Engineering | 6 | x |\n| Data Mining I | 6 | x |\n"
+        "| Data Visualization | 3 | x |\n| Information Retrieval | 6 | x |\n\n**Total CP:** 21")
+    c = PlanConstraints(target_semesters=4, cp_overrides={1: 21})
+    rep = validate_plan(plan, CATALOG_MD, PROFILE_MD, c)
+    assert not any(f.rule == "cp-preference" for f in rep.warnings), rep.summary()
+
+
+def test_feasibility_impossible_horizon_warns():
+    # master: 90 CP coursework, 27 completed → 63 remaining; 1 semester × 36 = 36 < 63
+    plan = _plan(
+        "| Module | CP | Why |\n|---|---|---|\n| Big Data Engineering | 6 | x |\n\n**Total CP:** 6")
+    c = PlanConstraints(degree_type="master", target_semesters=1)
+    rep = validate_plan(plan, CATALOG_MD, PROFILE_MD, c)
+    assert any(f.rule == "feasibility" for f in rep.warnings), rep.summary()
+
+
+def test_feasibility_reasonable_horizon_ok():
+    # 63 remaining over 3 semesters × 36 = 108 capacity → feasible, no warning
+    plan = _plan(
+        "| Module | CP | Why |\n|---|---|---|\n| Big Data Engineering | 6 | x |\n\n**Total CP:** 6")
+    c = PlanConstraints(degree_type="master", target_semesters=3)
+    rep = validate_plan(plan, CATALOG_MD, PROFILE_MD, c)
+    assert not any(f.rule == "feasibility" for f in rep.findings), rep.summary()
+
+
 # ─── integration: the committed sample output ──────────────────────────────────
 
 def test_committed_example_catches_known_take_limit_violation():

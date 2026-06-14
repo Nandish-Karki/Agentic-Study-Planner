@@ -13,11 +13,15 @@ load_dotenv()
 
 
 def plan_studies(data_dir: str = "data", save_report: bool = True,
-                 validate: bool = True) -> dict:
+                 validate: bool = True, constraints=None) -> dict:
     """
     Run the 5-agent study-planner crew on a folder of input documents.
 
     Expects in data_dir: cv.pdf, transcript.pdf, career.pdf, module_handbook.pdf
+
+    `constraints` is an optional study_planner.inputs.PlanConstraints (target
+    semesters + per-semester CP preferences). When None, a permissive default is
+    used so existing callers keep working.
 
     Returns:
         {
@@ -31,13 +35,20 @@ def plan_studies(data_dir: str = "data", save_report: bool = True,
     """
     # Import here so load_dotenv() runs before crew.py module-level config
     from study_planner.crew import StudyPlannerCrew
+    from study_planner.inputs import PlanConstraints
+
+    if constraints is None:
+        constraints = PlanConstraints()
 
     data = pathlib.Path(data_dir).resolve()
     if not data.exists():
         raise FileNotFoundError(f"Input folder not found: {data}")
 
     crew = StudyPlannerCrew().crew()
-    result = crew.kickoff(inputs={"data_dir": str(data)})
+    result = crew.kickoff(inputs={
+        "data_dir": str(data),
+        "constraints": constraints.render_for_prompt(),
+    })
 
     # Map each task's output by task name (robust to task reordering — never
     # index tasks_output by position). tasks_output is in crew.tasks order.
@@ -58,7 +69,7 @@ def plan_studies(data_dir: str = "data", save_report: bool = True,
     validation = None
     if validate:
         from study_planner.validate import validate_plan
-        validation = validate_plan(study_plan, module_catalog, profile)
+        validation = validate_plan(study_plan, module_catalog, profile, constraints)
 
     report_path = None
     if save_report:

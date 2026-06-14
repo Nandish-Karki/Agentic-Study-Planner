@@ -286,6 +286,24 @@ def parse_completed(profile_md: str) -> list[str]:
     return done
 
 
+def parse_completed_cp(profile_md: str) -> int:
+    """Sum of CP across completed-module tables in the profile (0 if none found)."""
+    total = 0
+    for t in parse_markdown_tables(profile_md):
+        mcol = _find_col(t.headers, "module", "name")
+        cpcol = _find_col(t.headers, "cp", "credit", "ects")
+        if not mcol or not cpcol:
+            continue
+        for row in t.rows:
+            name = row.get(mcol, "").strip()
+            if not name or _norm(name) in {"module", "name", "total"}:
+                continue
+            cp = _to_int(row.get(cpcol, ""))
+            if cp is not None:
+                total += cp
+    return total
+
+
 # ─── checking ──────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -323,11 +341,16 @@ class ValidationReport:
         return "\n".join(lines)
 
 
-def validate_plan(plan_md: str, catalog_md: str, profile_md: str = "") -> ValidationReport:
+def validate_plan(plan_md: str, catalog_md: str, profile_md: str = "",
+                  constraints=None) -> ValidationReport:
     """Check a generated plan against the curator catalog and student profile.
 
     Robust to missing inputs: if the catalog is empty, grounding/prereq checks
     are skipped with a WARNING rather than crashing.
+
+    `constraints` is an optional study_planner.inputs.PlanConstraints. When given,
+    three extra checks run: horizon (ERROR), cp-preference (WARNING) and
+    feasibility (WARNING). When None, behavior is unchanged (backward compatible).
     """
     rep = ValidationReport()
     catalog = parse_catalog(catalog_md)
@@ -443,7 +466,53 @@ def validate_plan(plan_md: str, catalog_md: str, profile_md: str = "") -> Valida
                     f"'{display}': {total} CP planned exceeds maximum of {mx} CP"))
         rep.stats["area_cp"] = {area_display.get(k, k): v for k, v in area_cp.items()}
 
+    # 6. student constraints (time horizon + per-semester CP preferences)
+    if constraints is not None:
+        _check_constraints(rep, semesters, completed, profile_md, constraints)
+
     return rep
+
+
+def _semester_cp(sem: "Semester") -> int:
+    """A semester's CP: the stated total if present, else the module CP sum."""
+    if sem.stated_total is not None:
+        return sem.stated_total
+    return sum(m.cp for m in sem.modules if m.cp is not None)
+
+
+def _check_constraints(rep: ValidationReport, semesters: list["Semester"],
+                       completed: list[str], profile_md: str, constraints) -> None:
+    """horizon (ERROR), cp-preference (WARNING), feasibility (WARNING)."""
+    # horizon — the plan must not span more semesters than the student wants
+    if len(semesters) > constraints.target_semesters:
+        rep.findings.append(Finding("ERROR", "horizon",
+            f"plan spans {len(semesters)} semesters but the student wants to "
+            f"finish in {constraints.target_semesters}"))
+
+    # cp-preference — each semester's load should be near its stated target
+    for i, sem in enumerate(semesters, start=1):
+        target = constraints.target_for_semester(i)
+        if target is None:
+            continue
+        actual = _semester_cp(sem)
+        if actual and abs(actual - target) > 3:
+            rep.findings.append(Finding("WARNING", "cp-preference",
+                f"{sem.label}: {actual} CP planned but the student asked for "
+                f"~{target} CP"))
+
+    # feasibility — can the remaining coursework even fit in the target horizon?
+    from study_planner.inputs import MAX_SANE_LOAD
+    completed_cp = parse_completed_cp(profile_md)
+    remaining = constraints.coursework_cp() - completed_cp
+    capacity = constraints.target_semesters * MAX_SANE_LOAD
+    rep.stats["remaining_coursework_cp"] = remaining
+    if remaining > capacity:
+        need = -(-remaining // constraints.target_semesters)  # ceil
+        rep.findings.append(Finding("WARNING", "feasibility",
+            f"~{remaining} CP of coursework remain but only {capacity} CP fit in "
+            f"{constraints.target_semesters} semesters at {MAX_SANE_LOAD} CP each "
+            f"(~{need} CP/semester needed) — finishing in "
+            f"{constraints.target_semesters} may be infeasible"))
 
 
 def _split_prereqs(text: str) -> list[str]:
