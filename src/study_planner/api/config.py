@@ -33,6 +33,10 @@ class Settings:
     smtp_from: str
     smtp_starttls: bool   # explicit TLS upgrade on a plaintext port (587)
     smtp_ssl: bool        # implicit TLS from connect (465); mutually exclusive w/ starttls
+    # Resend HTTP API key. Preferred over SMTP in hosts that block outbound SMTP
+    # (e.g. Render's free tier — SMTP ports are unreachable there). When set, mail
+    # goes out over HTTPS to api.resend.com instead of an SMTP socket.
+    resend_api_key: str
     # Base URL of the frontend, used to build verify/reset links in emails.
     app_base_url: str
     # Bundled sample inputs for the one-click "try the demo" flow (relative to CWD;
@@ -55,9 +59,10 @@ class Settings:
 
     @property
     def email_enabled(self) -> bool:
-        """True only when an SMTP host is configured. When False the email sender
-        is a logged no-op, so signup still succeeds (link goes to logs / DEBUG)."""
-        return bool(self.smtp_host)
+        """True when an email transport is configured (Resend HTTP API or SMTP).
+        When False the email sender is a logged no-op, so signup still succeeds
+        (link goes to logs / DEBUG)."""
+        return bool(self.resend_api_key or self.smtp_host)
 
 
 def _normalize_db_url(url: str) -> str:
@@ -96,6 +101,7 @@ def load_settings() -> Settings:
         smtp_from=os.getenv("SMTP_FROM", "Study Planner <no-reply@studyplanner.local>"),
         smtp_starttls=os.getenv("SMTP_STARTTLS", "0") == "1",
         smtp_ssl=os.getenv("SMTP_SSL", "0") == "1",
+        resend_api_key=os.getenv("RESEND_API_KEY", ""),
         app_base_url=os.getenv("APP_BASE_URL", "http://localhost:5173"),
         sample_data_dir=os.getenv("SAMPLE_DATA_DIR", "sample_data"),
         max_plans_per_day=int(os.getenv("MAX_PLANS_PER_DAY", "5")),

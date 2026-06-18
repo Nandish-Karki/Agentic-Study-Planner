@@ -59,6 +59,16 @@ Collected feedback = the "Impact" edge of the lifecycle.
   and runs the crew (Playbook Phase 0 rule — currently it takes 3 commands).
 - **Preflight check:** `python -m study_planner.check` — Python version, deps importable,
   API key valid (1-token test call), all four input files present and parseable.
+- **Real transactional email (verification + password reset).** Code is already in
+  place but dormant: `api/email.py` sends via the **Resend HTTP API** when
+  `RESEND_API_KEY` is set (HTTPS — needed because Render's free tier blocks outbound
+  SMTP: `[Errno 101] Network is unreachable`), else falls back to SMTP. To turn it on
+  for public users you only need (no code change): (1) own a domain, (2) verify it in
+  Resend (add the SPF/DKIM DNS records), (3) set `RESEND_API_KEY` + `SMTP_FROM=…@yourdomain`
+  on Render, (4) set `DEBUG=0`. Until then the app runs with `DEBUG=1`, which returns the
+  verify link in the signup response and shows a "Verify now" button — fine for the
+  operator/demo, not for arbitrary strangers. `onboarding@resend.dev` works as an interim
+  sender but only delivers to your own Resend account email.
 
 ## 4. Process-model formalization (report material)
 

@@ -1,20 +1,26 @@
 """Transactional email — verification + password reset (BUILD_PLAN §5.2).
 
-Provider-agnostic SMTP. Locally this points at Mailpit (host=mailpit, port=1025,
-no auth/TLS) and you read the mail at http://localhost:8025; in prod point SMTP_*
-at any real provider (set SMTP_USER/SMTP_PASSWORD/SMTP_STARTTLS).
+Two transports, picked by config:
+  - RESEND_API_KEY set  -> send over HTTPS via the Resend API. Use this on hosts
+    that block outbound SMTP (Render's free tier makes smtp.gmail.com:587
+    unreachable -> "[Errno 101] Network is unreachable"). HTTPS is always allowed.
+  - else SMTP_HOST set   -> classic SMTP. Locally this is Mailpit (host=mailpit,
+    port=1025, no auth/TLS), read at http://localhost:8025.
 
-If SMTP is not configured (no SMTP_HOST) the sender is a logged no-op so signup
-still succeeds — the link is logged, and returned in the API response when DEBUG
-is on. Sending never raises into the request path: a failure is logged and the
-caller is told whether it went out, so a broken mailer can't break signup.
+If neither is configured the sender is a logged no-op so signup still succeeds —
+the link is logged, and returned in the API response when DEBUG is on. Sending
+never raises into the request path: a failure is logged and the caller is told
+whether it went out, so a broken mailer can't break signup.
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import smtplib
 import ssl
+import urllib.error
+import urllib.request
 from email.message import EmailMessage
 
 from study_planner.api.config import settings
@@ -57,18 +63,49 @@ def _send_sync(to: str, subject: str, text: str, html: str) -> None:
         smtp.send_message(msg)
 
 
+def _send_resend(to: str, subject: str, text: str, html: str) -> None:
+    """POST one email to the Resend API over HTTPS. Blocking (urllib) — run it in
+    a thread. Raises with the response body on a non-2xx so the cause is logged."""
+    payload = json.dumps({
+        "from": settings.smtp_from,   # must be a Resend-verified sender/domain
+        "to": [to],
+        "subject": subject,
+        "text": text,
+        "html": html,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.resend.com/emails",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {settings.resend_api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            resp.read()
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")[:300]
+        raise RuntimeError(f"Resend API {e.code}: {body}") from e
+
+
 async def _send(to: str, subject: str, text: str, html: str) -> bool:
-    """Send one email. Returns True if handed to SMTP, False if disabled/failed.
-    Logs (once, at the call site) whether email is wired up — config must be
-    provably live (playbook 2.4)."""
-    if not settings.email_enabled:
-        log.warning("email disabled (SMTP_HOST unset) — skipped %r to %s", subject, to)
+    """Send one email. Returns True if handed to a transport, False if
+    disabled/failed. Logs (once, at the call site) whether email is wired up —
+    config must be provably live (playbook 2.4)."""
+    if settings.resend_api_key:
+        transport, label = _send_resend, "resend"
+    elif settings.smtp_host:
+        transport, label = _send_sync, f"{settings.smtp_host}:{settings.smtp_port}"
+    else:
+        log.warning("email disabled (no RESEND_API_KEY or SMTP_HOST) — "
+                    "skipped %r to %s", subject, to)
         return False
     try:
-        # smtplib is blocking; keep it off the event loop.
-        await asyncio.to_thread(_send_sync, to, subject, text, html)
-        log.info("sent %r to %s via %s:%s", subject, to,
-                 settings.smtp_host, settings.smtp_port)
+        # Both transports block; keep them off the event loop.
+        await asyncio.to_thread(transport, to, subject, text, html)
+        log.info("sent %r to %s via %s", subject, to, label)
         return True
     except Exception as e:  # never break the request because mail failed
         log.error("email send failed (%r to %s): %s", subject, to, e)

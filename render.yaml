@@ -52,9 +52,12 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false   # optional rate-limit fallback
-      # Email (verification + password reset). Set these to your Gmail App Password
-      # or a transactional provider — see .env.example. Leave blank to disable email
-      # (NOT viable in prod: users can't verify with DEBUG=0).
+      # Email (verification + password reset). On Render's free tier outbound SMTP
+      # is blocked ("[Errno 101] Network is unreachable"), so use RESEND_API_KEY —
+      # mail then goes out over HTTPS. Set SMTP_FROM to a Resend-verified sender.
+      # (SMTP_* below are only used when RESEND_API_KEY is unset — e.g. local dev.)
+      - key: RESEND_API_KEY
+        sync: false   # set in dashboard — preferred transport on Render
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT

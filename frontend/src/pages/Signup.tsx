@@ -91,11 +91,11 @@ export default function Signup() {
           />
           <span>
             I accept the{" "}
-            <a href="/legal/privacy" className="text-accent hover:underline">
+            <a href="/legal/privacy" target="_blank" rel="noreferrer" className="text-accent hover:underline">
               Privacy Policy
             </a>{" "}
             and{" "}
-            <a href="/legal/tos" className="text-accent hover:underline">
+            <a href="/legal/tos" target="_blank" rel="noreferrer" className="text-accent hover:underline">
               Terms
             </a>
             . I understand my documents are sent to a third-party AI provider to

@@ -8,6 +8,7 @@ import ResetPassword from "./pages/ResetPassword";
 import Dashboard from "./pages/Dashboard";
 import NewPlan from "./pages/NewPlan";
 import PlanView from "./pages/PlanView";
+import Legal from "./pages/Legal";
 import { type ReactNode } from "react";
 
 function Protected({ children }: { children: ReactNode }) {
@@ -33,6 +34,8 @@ export default function App() {
       <Route path="/signup" element={<Signup />} />
       <Route path="/verify" element={<Verify />} />
       <Route path="/reset" element={<ResetPassword />} />
+      <Route path="/legal/privacy" element={<Legal doc="privacy" title="Privacy Policy" />} />
+      <Route path="/legal/tos" element={<Legal doc="tos" title="Terms & Conditions" />} />
       <Route
         path="/app"
         element={
