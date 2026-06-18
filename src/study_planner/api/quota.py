@@ -18,7 +18,10 @@ async def plans_today(session: AsyncSession, user_id: str) -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     result = await session.execute(
         select(func.count()).select_from(PlanJob)
-        .where(PlanJob.user_id == user_id, PlanJob.created_at >= cutoff))
+        .where(PlanJob.user_id == user_id, PlanJob.created_at >= cutoff,
+               # A job that failed because OUR shared free tier was exhausted is not
+               # the user's fault — don't charge it against their daily allowance.
+               PlanJob.failure_reason.is_distinct_from("quota_exhausted")))
     return int(result.scalar_one())
 
 

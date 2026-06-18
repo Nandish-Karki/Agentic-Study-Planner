@@ -14,9 +14,19 @@ export function setToken(t: string | null) {
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  detail: unknown; // raw `detail` (may be a structured object, e.g. quota info)
+  constructor(status: number, message: string, detail?: unknown) {
     super(message);
     this.status = status;
+    this.detail = detail;
+  }
+  // Convenience: structured detail for a quota-exhausted 429, else null.
+  get quota(): { reason: string; message: string; retry_after_s?: number; retry_at?: string } | null {
+    const d = this.detail as { reason?: string } | undefined;
+    if (d && typeof d === "object" && (d.reason === "quota_exhausted" || d.reason === "daily_user_limit")) {
+      return d as { reason: string; message: string; retry_after_s?: number; retry_at?: string };
+    }
+    return null;
   }
 }
 
@@ -34,9 +44,10 @@ async function request<T>(
   const text = await res.text();
   const data = text ? JSON.parse(text) : undefined;
   if (!res.ok) {
-    const detail =
-      (data && (data.detail || data.message)) || res.statusText || "Request failed";
-    throw new ApiError(res.status, typeof detail === "string" ? detail : JSON.stringify(detail));
+    const raw = (data && (data.detail ?? data.message)) ?? res.statusText ?? "Request failed";
+    const message =
+      typeof raw === "string" ? raw : (raw && raw.message) || JSON.stringify(raw);
+    throw new ApiError(res.status, message, raw);
   }
   return data as T;
 }
@@ -53,10 +64,19 @@ export interface User {
 export interface Job {
   id: string;
   status: "queued" | "running" | "succeeded" | "failed";
+  phase: string | null; // live progress label while running
   provider: string | null;
   error: string | null;
+  failure_reason: string | null; // e.g. "quota_exhausted"
+  retry_at: string | null;
   created_at: string;
   finished_at: string | null;
+}
+
+export interface ServiceStatus {
+  quota_available: boolean;
+  retry_at: string | null;
+  cooldown_seconds: number;
 }
 
 export interface Finding {
@@ -76,6 +96,8 @@ export interface Plan {
   status: string;
   study_plan_md?: string;
   skill_gaps_md?: string;
+  profile_md?: string;
+  module_catalog_md?: string;
   validation?: Validation | null;
   created_at?: string | null;
 }
@@ -110,6 +132,13 @@ export const api = {
       method: "POST",
     }),
 
+  resendVerification: (email: string) =>
+    request<{ message: string; verify_token?: string }>("/auth/resend-verification", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    }),
+
   login: (email: string, password: string) =>
     request<{ access_token: string }>("/auth/login", {
       method: "POST",
@@ -133,6 +162,8 @@ export const api = {
 
   me: () => request<User>("/auth/me", { auth: true }),
 
+  status: () => request<ServiceStatus>("/status"),
+
   deleteAccount: () => request<void>("/me", { method: "DELETE", auth: true }),
 
   // ── plans ──────────────────────────────────────────────────────────────────
@@ -146,13 +177,24 @@ export const api = {
   deletePlan: (id: string) =>
     request<void>(`/plans/${id}`, { method: "DELETE", auth: true }),
 
-  createPlan: (files: { transcript: File; handbook: File; career: File; cv?: File | null }, constraints: Constraints) => {
+  createPlan: (
+    files: { handbook: File; career: File; transcript?: File | null; cv?: File | null },
+    opts?: { newStudent?: boolean; constraints?: Constraints },
+  ) => {
     const fd = new FormData();
-    fd.append("transcript", files.transcript);
     fd.append("handbook", files.handbook);
     fd.append("career", files.career);
+    // A new first-semester student uploads no transcript; the API synthesizes a
+    // blank 0-CP one. A continuing student must provide it.
+    if (files.transcript) fd.append("transcript", files.transcript);
     if (files.cv) fd.append("cv", files.cv);
-    fd.append("constraints", JSON.stringify(constraints));
+    if (opts?.newStudent) fd.append("new_student", "true");
+    // The preferences UI was removed; the API defaults every constraint
+    // server-side (degree=master, target_semesters=4, no CP cap) when omitted.
+    if (opts?.constraints) fd.append("constraints", JSON.stringify(opts.constraints));
     return request<Job>("/plans", { method: "POST", auth: true, body: fd });
   },
+
+  // One-click demo on the bundled sample student (no upload needed).
+  createDemoPlan: () => request<Job>("/plans/demo", { method: "POST", auth: true }),
 };

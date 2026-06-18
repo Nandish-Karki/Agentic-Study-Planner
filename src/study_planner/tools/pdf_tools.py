@@ -1,4 +1,5 @@
 import pathlib
+import re
 from crewai.tools import tool
 from pypdf import PdfReader
 
@@ -94,10 +95,17 @@ def read_document(file_path: str) -> str:
     except Exception as e:
         return f"ERROR reading {path.name}: {e}"
 
+    # Scanned/image PDF (no embedded text) -> try OCR before giving up.
+    if not text.strip() and path.suffix.lower() == ".pdf":
+        from study_planner.ingest.ocr import ocr_pdf
+        ocr_text = ocr_pdf(path)
+        if ocr_text.strip():
+            text = ocr_text
+
     if not text.strip():
         return (
-            f"WARNING: {path.name} produced no extractable text — "
-            "it may be a scanned/image-based PDF."
+            f"WARNING: {path.name} produced no extractable text — it looks like a "
+            "scanned/image PDF and OCR was unavailable. Try uploading a text-based PDF."
         )
 
     total_chunks = max(1, -(-len(text) // READ_CHAR_CAP))  # ceil division
@@ -154,3 +162,72 @@ def search_document(query: str) -> str:
     if not matches:
         return f"No matches for '{keyword}' in {path.name}"
     return f"Matches for '{keyword}' in {path.name}:\n\n" + "\n\n".join(matches)
+
+
+# ── Input-extraction diagnosis (debug/observability) ───────────────────────────
+# Core documents the crew expects; reported as MISSING if absent.
+_EXPECTED_INPUTS = ("cv.pdf", "transcript.pdf", "career.pdf", "module_handbook.pdf")
+
+# Below this many extracted chars per page a PDF is almost certainly scanned /
+# image-only — pypdf gets nothing usable and every downstream agent hallucinates.
+# No RAG fixes this; it needs OCR. Surfacing it is the cheapest, highest-value check.
+_UNREADABLE_CHARS_PER_PAGE = 100
+
+
+def diagnose_inputs(data_dir) -> list[dict]:
+    """Report text-extraction health for every PDF in ``data_dir``.
+
+    Returns one row per PDF (plus a row for any missing expected input) with the
+    page count, total extracted characters, chars-per-page, and a
+    ``looks_unreadable`` flag. This is the cheapest check for the highest-impact
+    hidden failure mode: a scanned CV/transcript that yields near-empty text
+    poisons the whole pipeline and cannot be fixed by retrieval — only OCR.
+    """
+    base = pathlib.Path(data_dir)
+    rows: list[dict] = []
+    seen: set[str] = set()
+    pdfs = sorted(base.glob("*.pdf")) if base.exists() else []
+    for path in pdfs:
+        seen.add(path.name)
+        row = {"file": path.name, "size_kb": path.stat().st_size // 1024}
+        try:
+            reader = PdfReader(str(path))
+            pages = len(reader.pages)
+            # Strip the synthetic page markers so the char count is honest.
+            text = re.sub(r"--- page \d+ ---", "", _extract_pdf_text(path)).strip()
+            chars = len(text)
+            per_page = chars // pages if pages else 0
+            row.update(pages=pages, chars=chars, chars_per_page=per_page,
+                       looks_unreadable=(pages > 0 and per_page < _UNREADABLE_CHARS_PER_PAGE))
+        except Exception as e:
+            row.update(pages=0, chars=0, chars_per_page=0,
+                       looks_unreadable=True, error=str(e))
+        rows.append(row)
+    for name in _EXPECTED_INPUTS:
+        if name not in seen:
+            rows.append({"file": name, "missing": True})
+    return rows
+
+
+def format_input_diagnosis(rows: list[dict]) -> str:
+    """Render :func:`diagnose_inputs` output as a Markdown report."""
+    lines = ["# Input extraction diagnosis", "",
+             "| File | Size KB | Pages | Chars | Chars/page | Status |",
+             "|---|---|---|---|---|---|"]
+    for r in rows:
+        if r.get("missing"):
+            lines.append(f"| {r['file']} | - | - | - | - | MISSING |")
+            continue
+        if r.get("error"):
+            status = f"ERROR: {r['error']}"
+        elif r.get("looks_unreadable"):
+            status = "LIKELY SCANNED / NEEDS OCR"
+        else:
+            status = "ok"
+        lines.append(
+            f"| {r['file']} | {r.get('size_kb', '')} | {r.get('pages', '')} | "
+            f"{r.get('chars', '')} | {r.get('chars_per_page', '')} | {status} |")
+    lines += ["",
+              "_Files flagged LIKELY SCANNED extract almost no text; retrieval "
+              "(RAG) cannot fix this -- they need OCR. Fix these first._"]
+    return "\n".join(lines)

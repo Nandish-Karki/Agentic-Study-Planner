@@ -29,6 +29,10 @@ class PasswordResetRequest(BaseModel):
     email: EmailStr
 
 
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
 class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str = Field(min_length=8, max_length=128)
@@ -54,10 +58,20 @@ class ConstraintsIn(BaseModel):
 class JobOut(BaseModel):
     id: str
     status: str
+    phase: str | None = None            # live progress label while running
     provider: str | None = None
     error: str | None = None
+    failure_reason: str | None = None   # e.g. "quota_exhausted" -> friendly popup
+    retry_at: datetime | None = None    # when to try again (cooldown end)
     created_at: datetime
     finished_at: datetime | None = None
+
+
+class StatusOut(BaseModel):
+    """Public service status for a global banner (no auth)."""
+    quota_available: bool
+    retry_at: datetime | None = None
+    cooldown_seconds: int = 0
 
 
 class ValidationOut(BaseModel):
@@ -72,5 +86,7 @@ class PlanOut(BaseModel):
     status: str
     study_plan_md: str | None = None
     skill_gaps_md: str | None = None
+    profile_md: str | None = None
+    module_catalog_md: str | None = None
     validation: ValidationOut | None = None
     created_at: datetime | None = None

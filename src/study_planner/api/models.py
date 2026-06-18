@@ -66,6 +66,10 @@ class PlanJob(Base):
     constraints_json: Mapped[dict] = mapped_column(JSON, default=dict)
     provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Typed failure cause so the UI can react (e.g. "quota_exhausted" -> friendly
+    # "come back later" popup vs a generic error). retry_at is when to try again.
+    failure_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

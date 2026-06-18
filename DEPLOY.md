@@ -95,14 +95,21 @@ curl $API/legal/privacy                 # privacy policy text
 
 ## Still to wire for a full production launch (documented gaps, not code holes)
 
-1. **Email delivery.** Verification + password-reset tokens are returned in the API
-   response only when `DEBUG=1`. For prod, plug an SMTP/email provider into
-   `routes/auth.py` (the `make_verify_token` / `make_reset_token` calls) and send
-   the link instead of returning it.
-2. **Google OAuth.** `/auth/oauth/google` is scaffolded; set `GOOGLE_CLIENT_ID` /
+1. **Email delivery (config, not code).** Sending is fully wired (`api/email.py`,
+   called from `routes/auth.py`); it's a logged no-op until you set `SMTP_*`. For prod,
+   set `SMTP_HOST/PORT/USER/PASSWORD/FROM` + `APP_BASE_URL` and **one** TLS mode —
+   `SMTP_SSL=1` (implicit TLS, port 465) **or** `SMTP_STARTTLS=1` (STARTTLS, port 587).
+   Examples for Resend / SendGrid / AWS SES are in `.env.example`. With `DEBUG=0` and no
+   SMTP, users can't verify their email — so this is required for a public launch. Verify
+   it by signing up and watching the `study_planner.email` log line ("sent ... via host:port").
+2. **Error tracking (recommended).** Set `SENTRY_DSN` to capture API/worker exceptions
+   (the app inits Sentry automatically when the DSN is present; otherwise it's a no-op).
+   Without it, job failures only reach stdout.
+3. **Google OAuth.** `/auth/oauth/google` is scaffolded; set `GOOGLE_CLIENT_ID` /
    `GOOGLE_CLIENT_SECRET` and implement the redirect/callback to finish it.
-3. **Alembic migrations.** Boot does `create_all` (safe/idempotent). Add Alembic
-   before the first schema change in prod.
-4. **DPA with your LLM provider** + the privacy policy review — you send transcript
+4. **Alembic migrations.** Boot does `create_all` plus an idempotent `ADD COLUMN IF NOT
+   EXISTS` for post-release columns (`db.py`). That's a stopgap — add Alembic before the
+   next non-trivial schema change in prod.
+5. **DPA with your LLM provider** + the privacy policy review — you send transcript
    text to a third party; that must be disclosed (it is, in `/legal/privacy`) and
-   covered by a data-processing agreement.
+   covered by a data-processing agreement. Use an EU region for GDPR (render.yaml is Frankfurt).

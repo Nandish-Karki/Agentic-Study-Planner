@@ -1,6 +1,7 @@
 crewai==1.14.7
-litellm==1.88.1
+litellm==1.89.0
 groq==1.4.0
 python-dotenv==1.2.2
 pypdf==6.13.2
+fpdf2==2.8.4
 streamlit==1.58.0

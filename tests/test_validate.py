@@ -14,6 +14,10 @@ from study_planner.validate import (
     parse_completed,
     _parse_take_limit,
     _best_match,
+    build_correction,
+    render_area_budget_table,
+    ValidationReport,
+    Finding,
 )
 
 # A small handbook mirroring sample_data, as the curator would emit it.
@@ -200,6 +204,87 @@ def test_area_budget_within_range_passes():
     assert not budget_errors, rep.summary()
 
 
+# ─── area budgets driven by an uploaded schedule (requirements) ────────────────
+
+from study_planner.requirements import ProgramRequirements, AreaRequirement
+
+
+def _req():
+    return ProgramRequirements(areas={
+        "fundamentals of data science": AreaRequirement("Fundamentals of Data Science", 12, 18),
+        "data processing": AreaRequirement("Data Processing", 6, 18),
+        "applied data science": AreaRequirement("Applied Data Science", 6, 12, project_cp=6),
+    }, thesis_cp=30)
+
+
+def test_requirements_completed_credits_count_toward_minimum():
+    # Fundamentals min 12 is met entirely by COMPLETED modules (2×6 CP); the plan
+    # adds nothing there. With requirements it must NOT be flagged — the whole
+    # point: already-earned credits reduce what has to be planned.
+    profile = ("| Module | CP | Grade |\n|---|---|---|\n"
+               "| Advanced Databases | 6 | 1.7 |\n"
+               "| Machine Learning Foundations | 6 | 2.0 |\n")
+    plan = _plan("| Module | CP | Why |\n|---|---|---|\n| Big Data Engineering | 6 | x |\n\n**Total CP:** 6")
+    rep = validate_plan(plan, CATALOG_WITH_AREAS, profile, requirements=_req())
+    msgs = [f.message for f in rep.findings if f.rule == "area-budget"]
+    assert not any("Fundamentals" in m for m in msgs), rep.summary()
+    # Applied Data Science still has 0 CP (min 6) → flagged.
+    assert any("Applied Data Science" in m for m in msgs), rep.summary()
+    assert rep.stats["area_cp"]["Fundamentals of Data Science"] == 12
+    assert rep.stats["area_detail"]["Fundamentals of Data Science"]["completed"] == 12
+
+
+def test_requirements_team_project_warns_when_absent():
+    # Applied area filled to its min with a NON-project module → still warn, since
+    # the schedule requires a team project there.
+    plan = _plan("| Module | CP | Why |\n|---|---|---|\n"
+                 "| Data Visualization | 3 | x |\n"
+                 "| Data Visualization | 3 | x |\n\n**Total CP:** 6")
+    rep = validate_plan(plan, CATALOG_WITH_AREAS, "", requirements=_req())
+    assert any(f.rule == "area-project" for f in rep.warnings), rep.summary()
+
+
+def test_requirements_team_project_satisfied():
+    plan = _plan("| Module | CP | Why |\n|---|---|---|\n| Scientific Team Project | 6 | x |\n\n**Total CP:** 6")
+    rep = validate_plan(plan, CATALOG_WITH_AREAS, "", requirements=_req())
+    assert not any(f.rule == "area-project" and "Applied" in f.message
+                   for f in rep.warnings), rep.summary()
+
+
+def test_requirements_overplanning_is_error():
+    """Core 'plan only remaining credits' rule: scheduling more coursework than
+    the student still needs is an ERROR (the planner did this — 33 CP for 9)."""
+    # total 24 CP = 18 coursework + 6 thesis; 12 already completed → only 6 remain.
+    req = ProgramRequirements(areas={
+        "fundamentals of data science": AreaRequirement("Fundamentals of Data Science", 6, 18),
+        "data processing": AreaRequirement("Data Processing", 6, 18),
+    }, thesis_cp=6, total_cp=24)
+    completed_by_area = {"fundamentals of data science": 12}
+    # plan schedules 12 CP (6 Fundamentals + 6 Data Processing) → 24 total > 18 req.
+    plan = _plan("| Module | CP | Why |\n|---|---|---|\n"
+                 "| Advanced Databases | 6 | x |\n"
+                 "| Big Data Engineering | 6 | x |\n\n**Total CP:** 12")
+    rep = validate_plan(plan, CATALOG_WITH_AREAS, "", requirements=req,
+                        completed_by_area=completed_by_area)
+    overplan = [f for f in rep.findings if f.rule == "coursework-overplan"]
+    assert overplan and overplan[0].severity == "ERROR", rep.summary()
+    assert not rep.ok, rep.summary()
+
+
+def test_requirements_exact_remaining_no_overplan_error():
+    """Planning exactly the remaining coursework must NOT trigger the overplan ERROR."""
+    req = ProgramRequirements(areas={
+        "fundamentals of data science": AreaRequirement("Fundamentals of Data Science", 6, 18),
+        "data processing": AreaRequirement("Data Processing", 6, 18),
+    }, thesis_cp=6, total_cp=24)
+    completed_by_area = {"fundamentals of data science": 12}
+    # only 6 remain; plan schedules exactly 6 (Big Data Engineering, Data Processing).
+    plan = _plan("| Module | CP | Why |\n|---|---|---|\n| Big Data Engineering | 6 | x |\n\n**Total CP:** 6")
+    rep = validate_plan(plan, CATALOG_WITH_AREAS, "", requirements=req,
+                        completed_by_area=completed_by_area)
+    assert not any(f.rule == "coursework-overplan" for f in rep.findings), rep.summary()
+
+
 # ─── planning constraints (horizon / cp-preference / feasibility) ──────────────
 
 from study_planner.inputs import PlanConstraints
@@ -269,6 +354,63 @@ def test_feasibility_reasonable_horizon_ok():
     assert not any(f.rule == "feasibility" for f in rep.findings), rep.summary()
 
 
+# ─── no-schedule coursework overplan (the load-bearing guard without a schedule) ─
+
+# A student who has already completed 84 of 90 coursework CP — only 6 remain.
+HIGH_COMPLETED_PROFILE = """
+Programme: M.Sc. DKE.
+
+| Module | CP | Grade |
+|---|---|---|
+| Completed Coursework Block | 84 | 1.0 |
+"""
+
+
+def test_no_schedule_overplan_is_error():
+    """No schedule uploaded, so the per-area guards are off. Planning more than the
+    remaining coursework (deterministic: 90 - 84 = 6) must still ERROR — this is the
+    real-world bug where the planner re-planned the whole degree for an 81-CP student."""
+    plan = _plan("| Module | CP | Why |\n|---|---|---|\n"
+                 "| Data Mining I | 6 | x |\n"
+                 "| Software Engineering for Data Science | 6 | x |\n\n**Total CP:** 12")
+    c = PlanConstraints(degree_type="master", target_semesters=4)
+    rep = validate_plan(plan, CATALOG_MD, HIGH_COMPLETED_PROFILE, c)
+    overplan = [f for f in rep.findings if f.rule == "coursework-overplan"]
+    assert overplan and overplan[0].severity == "ERROR", rep.summary()
+    assert not rep.ok, rep.summary()
+
+
+def test_no_schedule_exact_remaining_no_overplan():
+    """Planning exactly the remaining coursework (6 CP) must NOT trip the ERROR."""
+    plan = _plan("| Module | CP | Why |\n|---|---|---|\n| Data Mining I | 6 | x |\n\n**Total CP:** 6")
+    c = PlanConstraints(degree_type="master", target_semesters=4)
+    rep = validate_plan(plan, CATALOG_MD, HIGH_COMPLETED_PROFILE, c)
+    assert not any(f.rule == "coursework-overplan" for f in rep.findings), rep.summary()
+
+
+def test_no_schedule_overplan_uses_transcript_override_not_profile():
+    """completed_cp_override (deterministic transcript total) must win over the
+    LLM profile's count, which under-reports. Profile says 0 completed, but the
+    override says 84 -> only 6 remain -> planning 12 is still an ERROR."""
+    plan = _plan("| Module | CP | Why |\n|---|---|---|\n"
+                 "| Data Mining I | 6 | x |\n"
+                 "| Software Engineering for Data Science | 6 | x |\n\n**Total CP:** 12")
+    c = PlanConstraints(degree_type="master", target_semesters=4)
+    rep = validate_plan(plan, CATALOG_MD, "", c, completed_cp_override=84)
+    overplan = [f for f in rep.findings if f.rule == "coursework-overplan"]
+    assert overplan and overplan[0].severity == "ERROR", rep.summary()
+
+
+def test_no_schedule_thesis_not_counted_as_overplan():
+    """The 30 CP thesis must not count toward the coursework-overplan total."""
+    plan = _plan(
+        "| Module | CP | Why |\n|---|---|---|\n| Data Mining I | 6 | x |\n\n**Total CP:** 6",
+        "| Module | CP | Why |\n|---|---|---|\n| Master Thesis | 30 | x |\n\n**Total CP:** 30")
+    c = PlanConstraints(degree_type="master", target_semesters=4)
+    rep = validate_plan(plan, CATALOG_MD, HIGH_COMPLETED_PROFILE, c)
+    assert not any(f.rule == "coursework-overplan" for f in rep.findings), rep.summary()
+
+
 # ─── integration: the committed sample output ──────────────────────────────────
 
 def test_committed_example_catches_known_take_limit_violation():
@@ -280,3 +422,111 @@ def test_committed_example_catches_known_take_limit_violation():
     assert any(f.rule == "take-limit" for f in rep.errors), rep.summary()
     # the real modules in the plan must NOT be flagged as hallucinations
     assert not any(f.rule == "grounding" for f in rep.errors), rep.summary()
+
+
+# ─── replan correction + deterministic budget table ────────────────────────────
+
+def test_ensure_thesis_appends_when_missing():
+    from study_planner.main import _ensure_thesis
+    from study_planner.requirements import ProgramRequirements
+    plan, appended = _ensure_thesis(
+        "### Summer Semester 2026\n| Module | CP |\n|---|---|\n| X | 6 |",
+        ProgramRequirements(thesis_cp=30))
+    assert appended and "thesis" in plan.lower() and "30" in plan
+
+
+def test_ensure_thesis_noop_when_present_or_not_required():
+    from study_planner.main import _ensure_thesis
+    from study_planner.requirements import ProgramRequirements
+    # already has a thesis -> no change
+    _, a1 = _ensure_thesis("Master's Thesis (Masterarbeit): 30 CP",
+                           ProgramRequirements(thesis_cp=30))
+    assert a1 is False
+    # programme has no thesis requirement -> no change
+    _, a2 = _ensure_thesis("plan body", ProgramRequirements())
+    assert a2 is False
+
+
+def test_cp_mismatch_flags_falsified_credit_value():
+    # Big Data Engineering is 6 CP in the catalog; planning it as 3 CP must ERROR.
+    plan = _plan(
+        "| Module | CP | Why |\n|---|---|---|\n| Big Data Engineering | 3 | x |\n\n**Total CP:** 3")
+    rep = validate_plan(plan, CATALOG_MD, PROFILE_MD)
+    assert any(f.rule == "cp-mismatch" for f in rep.errors), rep.summary()
+
+
+def test_cp_matching_value_has_no_mismatch():
+    plan = _plan(
+        "| Module | CP | Why |\n|---|---|---|\n| Big Data Engineering | 6 | x |\n\n**Total CP:** 6")
+    rep = validate_plan(plan, CATALOG_MD, PROFILE_MD)
+    assert not any(f.rule == "cp-mismatch" for f in rep.findings), rep.summary()
+
+
+def test_offered_menu_grounding_flags_off_menu_catalog_module():
+    # Big Data Engineering is in the full catalog but NOT on the offered menu →
+    # grounding against the menu must flag it (the structural-cap escape).
+    offered = ("| Module | CP | Semester offered | Key skills | Prerequisites |\n"
+               "|---|---|---|---|---|\n"
+               "| Advanced Databases | 6 | Winter | SQL | none |\n")
+    plan = _plan("| Module | CP | Why |\n|---|---|---|\n"
+                 "| Big Data Engineering | 6 | x |\n\n**Total CP:** 6")
+    rep = validate_plan(plan, CATALOG_WITH_AREAS, "", offered_md=offered)
+    assert any(f.rule == "grounding" for f in rep.errors), rep.summary()
+    # without the menu restriction the same module grounds fine (it IS in the catalog)
+    rep2 = validate_plan(plan, CATALOG_WITH_AREAS, "")
+    assert not any(f.rule == "grounding" for f in rep2.errors), rep2.summary()
+
+
+def test_unmapped_planned_module_counts_toward_coursework_total():
+    # An area-unmapped ('n/a') module used to escape the coursework total entirely
+    # (the ISP escape). It must now count, so a 9 CP unmapped module exceeding the
+    # 6 CP coursework budget is flagged.
+    cat = ("| Module | CP | Semester offered | Key skills taught | Prerequisites | Thematic Area |\n"
+           "|---|---|---|---|---|---|\n"
+           "| Advanced Databases | 6 | Winter | SQL | none | Fundamentals of Data Science |\n"
+           "| Independent Project | 9 | Every | research | none | n/a |\n")
+    req = ProgramRequirements(
+        areas={"fundamentals of data science":
+               AreaRequirement("Fundamentals of Data Science", 0, 18)},
+        thesis_cp=30, total_cp=36)  # coursework_cp = 6
+    plan = _plan("| Module | CP | Why |\n|---|---|---|\n"
+                 "| Independent Project | 9 | x |\n\n**Total CP:** 9")
+    rep = validate_plan(plan, cat, "", requirements=req, completed_by_area={})
+    assert any(f.rule == "coursework-overplan" for f in rep.errors), rep.summary()
+    assert rep.stats.get("planned_unmapped_cp") == 9, rep.stats
+
+
+def test_build_correction_empty_when_ok():
+    assert build_correction(ValidationReport()) == ""  # no findings → no errors → ""
+
+
+def test_build_correction_lists_every_error_and_cap():
+    rep = ValidationReport(
+        findings=[
+            Finding("ERROR", "area-budget", "'Applied': 30 CP exceeds the maximum of 24 CP"),
+            Finding("ERROR", "horizon", "plan spans 5 semesters but the student wants 4"),
+            Finding("WARNING", "cp-load", "ignored — warnings are not corrections"),
+        ],
+        stats={"coursework_required": 90,
+               "area_detail": {"A": {"completed": 81, "planned": 30, "min": 0, "max": 24}}},
+    )
+    out = build_correction(rep)
+    assert "area-budget" in out and "horizon" in out
+    assert "cp-load" not in out                       # warnings excluded
+    assert "EXACTLY 9 coursework CP" in out           # 90 required - 81 completed
+
+
+def test_render_area_budget_table_status_from_code_not_llm():
+    rep = ValidationReport(stats={"area_detail": {
+        "Applied": {"completed": 18, "planned": 12, "min": 18, "max": 24},   # 30 > 24
+        "Learning": {"completed": 24, "planned": 0, "min": 18, "max": 36},   # ok
+        "Core": {"completed": 4, "planned": 0, "min": 12, "max": 18},        # short
+    }})
+    table = render_area_budget_table(rep)
+    assert "| Applied | 18 | 12 | 30 | 18 | 24 | OVER |" in table
+    assert "| Learning | 24 | 0 | 24 | 18 | 36 | OK |" in table
+    assert "| Core | 4 | 0 | 4 | 12 | 18 | SHORT |" in table
+
+
+def test_render_area_budget_table_empty_without_detail():
+    assert render_area_budget_table(ValidationReport()) == ""

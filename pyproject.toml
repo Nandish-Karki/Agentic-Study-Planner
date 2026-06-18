@@ -4,16 +4,31 @@ version = "0.1.0"
 description = "Agentic study planner — 5 CrewAI agents that read a CV, transcript, career path, and module handbook to generate a semester-wise study plan"
 requires-python = ">=3.10,<3.14"
 dependencies = [
-    "crewai>=1.14.0",
-    "litellm>=1.88.0",
-    "groq>=0.9.0",
+    # PINNED, not >=: the image builds from this file (pip install ".[api]"), and
+    # an unpinned bump of this LLM trio is what changed Groq's tool-schema
+    # handling and 400'd every plan (2026-06-14). Keep these exact and in sync
+    # with requirements.txt; bump deliberately + re-verify a real plan run.
+    "crewai==1.14.7",
+    "litellm==1.89.0",
+    "groq==1.4.0",
     "python-dotenv>=1.0.0",
     "pypdf>=4.0.0",
+    # Runtime (not just dev): the API synthesizes a blank 0-CP transcript PDF for
+    # new first-semester students who upload no transcript (api/routes/plans.py).
+    "fpdf2>=2.8.0",
 ]
 
 [project.optional-dependencies]
-dev = ["fpdf2>=2.8.0", "pytest>=8.0", "httpx>=0.27"]  # sample-data gen + tests
+dev = ["pytest>=8.0", "httpx>=0.27"]  # tests (fpdf2 is now a runtime dep)
 demo = ["streamlit>=1.36"]              # Phase 0 validation demo (demo/app.py)
+# OCR for scanned/image PDFs (large/real handbooks). Needs the tesseract-ocr and
+# poppler-utils SYSTEM binaries too (installed in the Dockerfile). Imported lazily
+# so the app runs without them — OCR just degrades to "unavailable".
+ingest = [
+    "pytesseract>=0.3.10",
+    "pdf2image>=1.17",
+    "Pillow>=10.0",
+]
 # Production API + multi-user runtime (BUILD_PLAN B3-B5). Postgres in prod via
 # DATABASE_URL=postgresql+asyncpg://… ; Redis + worker when JOB_MODE=rq.
 api = [
@@ -29,6 +44,7 @@ api = [
     "email-validator>=2.0",
     "rq>=1.16",
     "redis>=5.0",
+    "sentry-sdk>=2.0",      # optional error tracking (active only when SENTRY_DSN set)
 ]
 
 [project.scripts]

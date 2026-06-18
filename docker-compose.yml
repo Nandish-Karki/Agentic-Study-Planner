@@ -28,6 +28,14 @@ services:
       timeout: 3s
       retries: 10
 
+  # Local mail catcher: the app sends here; read every email at http://localhost:8025.
+  # Swap SMTP_* on the api for a real provider to deliver to real inboxes.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"   # web UI
+      - "1025:1025"   # SMTP
+
   api:
     build: .
     environment:
@@ -36,15 +44,35 @@ services:
       DATABASE_URL: postgresql+asyncpg://planner:planner@db:5432/study_planner
       JOB_MODE: rq
       REDIS_URL: redis://redis:6379/0
+      # Shared with the worker (must match the worker's mount) so the worker can
+      # read uploads the API staged.
+      JOB_WORKSPACE_DIR: /data/jobs
       ALLOWED_ORIGINS: http://localhost:5173
       LLM_PROVIDER: ${LLM_PROVIDER:-github}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # Cross-provider fallback: when the primary provider hits a (daily) rate
+      # limit, calls switch to Gemini — a separate quota pool. Leave unset to
+      # disable. Must reach the worker too (that's where the crew runs).
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      LLM_FALLBACK_MODEL: ${LLM_FALLBACK_MODEL:-github/gpt-4o}
+      # Email via Mailpit (no auth/TLS locally). For real delivery set these to
+      # your provider's SMTP and add SMTP_USER/SMTP_PASSWORD/SMTP_STARTTLS in .env.
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-Study Planner <no-reply@studyplanner.local>}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-0}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
     ports:
       - "8000:8000"
+    volumes:
+      - jobdata:/data/jobs
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
+      mailpit: { condition: service_started }
 
   worker:
     build: .
@@ -53,10 +81,16 @@ services:
       DATABASE_URL: postgresql+asyncpg://planner:planner@db:5432/study_planner
       JOB_MODE: rq
       REDIS_URL: redis://redis:6379/0
+      JOB_WORKSPACE_DIR: /data/jobs
       SECRET_KEY: ${SECRET_KEY:-change-me-in-prod-please-32-chars-min}
       LLM_PROVIDER: ${LLM_PROVIDER:-github}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # Gemini fallback (see api service) — the crew runs here, so it needs the key.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      LLM_FALLBACK_MODEL: ${LLM_FALLBACK_MODEL:-github/gpt-4o}
+    volumes:
+      - jobdata:/data/jobs
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -76,3 +110,4 @@ services:
 
 volumes:
   pgdata:
+  jobdata:  # shared upload workspace: API stages PDFs here, worker reads them

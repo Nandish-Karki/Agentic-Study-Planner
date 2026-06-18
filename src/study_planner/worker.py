@@ -23,7 +23,9 @@ def main() -> None:
     from rq import Queue, Worker
 
     from study_planner.api.config import settings
+    from study_planner.api.observability import init_sentry
 
+    init_sentry("worker")  # capture crew/job failures in prod (no-op without SENTRY_DSN)
     conn = redis.from_url(settings.redis_url)
     queues = [Queue("plans", connection=conn)]
     print(f"[worker] listening on 'plans' via {settings.redis_url}")

@@ -1,8 +1,20 @@
-# Render.com blueprint — one-shot managed deploy of the whole stack
-# (BUILD_PLAN deploy). Create a new Blueprint on render.com pointing at this repo.
-# Set the secret env vars (GITHUB_TOKEN / GROQ_API_KEY) in the dashboard after.
+# Render.com blueprint — managed deploy (BUILD_PLAN deploy).
+# Create a new Blueprint on render.com pointing at this repo, then set the secret
+# env vars (GITHUB_TOKEN / GROQ_API_KEY / SMTP_*) in the dashboard after.
 #
 # Pick a EU region for GDPR residency (frankfurt).
+#
+# ── This file is the FREE tier (Path A) ──────────────────────────────────────
+# Render background WORKERS are not free, so we run the 5-agent crew INLINE in the
+# API (JOB_MODE=eager) and drop the separate worker + Redis. Trade-off: a plan
+# request blocks for the 1-2 min the crew takes, and the free web service sleeps
+# after 15 min idle (cold start on the next visit). Free Postgres is deleted after
+# 30 days. Fine for a demo; not for sustained traffic.
+#
+# To upgrade to production (Path B): add back a `type: keyvalue` Redis service and
+# a `type: worker` service (dockerCommand: python -m study_planner.worker), set
+# JOB_MODE=rq + REDIS_URL on BOTH the api and worker, and pay for the worker
+# instance. See git history / DEPLOY.md for the rq topology.
 
 databases:
   - name: study-planner-db
@@ -11,14 +23,7 @@ databases:
     postgresMajorVersion: "16"
 
 services:
-  # Redis (job queue)
-  - type: keyvalue
-    name: study-planner-redis
-    region: frankfurt
-    plan: free
-    ipAllowList: []
-
-  # API (web)
+  # API (web) — runs the crew inline (eager); no separate worker/Redis on free.
   - type: web
     name: study-planner-api
     runtime: docker
@@ -32,58 +37,40 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: JOB_MODE
-        value: rq
+        value: eager
       - key: DATABASE_URL
         fromDatabase:
           name: study-planner-db
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: study-planner-redis
           property: connectionString
       - key: ALLOWED_ORIGINS
         sync: false   # set to your frontend URL, e.g. https://study-planner.vercel.app
       - key: LLM_PROVIDER
-        value: github
+        value: mixed
       - key: GITHUB_TOKEN
-        sync: false   # set in dashboard
+        sync: false   # set in dashboard (LLM key)
       - key: GROQ_API_KEY
         sync: false
-
-  # Worker (RQ) — runs the 5-agent crew off the request path
-  - type: worker
-    name: study-planner-worker
-    runtime: docker
-    region: frankfurt
-    plan: free
-    dockerfilePath: ./Dockerfile
-    dockerCommand: python -m study_planner.worker
-    envVars:
-      - key: JOB_MODE
-        value: rq
-      - key: DATABASE_URL
-        fromDatabase:
-          name: study-planner-db
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: study-planner-redis
-          property: connectionString
-      - key: SECRET_KEY
-        fromService:
-          type: web
-          name: study-planner-api
-          envVarKey: SECRET_KEY
-      - key: LLM_PROVIDER
-        value: github
-      - key: GITHUB_TOKEN
+      - key: GEMINI_API_KEY
+        sync: false   # optional rate-limit fallback
+      # Email (verification + password reset). Set these to your Gmail App Password
+      # or a transactional provider — see .env.example. Leave blank to disable email
+      # (NOT viable in prod: users can't verify with DEBUG=0).
+      - key: SMTP_HOST
         sync: false
-      - key: GROQ_API_KEY
+      - key: SMTP_PORT
         sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_STARTTLS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: APP_BASE_URL
+        sync: false   # your frontend URL, so verify/reset links open the SPA
 
 # NOTE: Render's connection string is `postgresql://…`; the app auto-rewrites it to
 # the async driver (`postgresql+asyncpg://…`) in config.py, so no manual prefix
-# needed. After the first deploy, set ALLOWED_ORIGINS to your frontend URL and add
-# the LLM secrets (GITHUB_TOKEN / GROQ_API_KEY). See DEPLOY.md.
+# needed. After the first deploy, set ALLOWED_ORIGINS + APP_BASE_URL to your
+# frontend URL and add the LLM + SMTP secrets in the dashboard. See DEPLOY.md.

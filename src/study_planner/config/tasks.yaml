@@ -34,14 +34,94 @@ modules_task:
     in the handbook (e.g. "Fundamentals of Data Science"). Write "n/a" if not stated.
     List only modules that actually appear in the handbook. Do not editorialise.
 
-    Table 2 — Area CP budgets from the programme structure section:
+    {area_names}
+    The block above (when present) lists the ONLY valid strings for the "Thematic Area"
+    column. Copy them character-by-character — no abbreviations, no variants.
+
+    {requirements}
+
+    Table 2 — Area CP budgets:
     | Thematic Area | Min CP | Max CP |
-    Extract the required credit-point range for each area from the handbook.
-    Omit rows where no explicit range is given.
+    IMPORTANT: If AUTHORITATIVE PROGRAMME RULES are given above (the block starting
+    "AUTHORITATIVE PROGRAMME RULES"), copy the Min CP and Max CP values EXACTLY from
+    that block — do NOT look at the module handbook for these numbers.
+    If no authoritative rules are given, extract the ranges from the handbook's
+    thematic-area rules section.
+    WARNING: Do NOT use any semester-distribution table (e.g. "Semester 1 (WS): 15–18 CP",
+    Regelstudienplan, or recommended study plan) as the source of Min/Max CP. Those
+    describe semester load, not thematic-area budgets. Omit rows where no explicit
+    per-area range is given.
   expected_output: >
-    Two Markdown tables: (1) complete module catalog with Thematic Area column,
-    (2) area CP budget table listing Min CP and Max CP per thematic area.
+    Two Markdown tables: (1) complete module catalog with Thematic Area column using
+    only the exact area name strings provided, (2) area CP budget table listing Min CP
+    and Max CP per thematic area.
   agent: module_curator
+
+plan_task_v2:
+  description: >
+    Create the personalized semester-wise study plan using the information provided below.
+
+    {correction}
+
+    STUDENT PROFILE (completed modules, credit points, demonstrated skills):
+    {profile_summary}
+
+    TARGET CAREER AND SKILL GAPS:
+    {career_summary}
+
+    {gap_summary}
+
+    MODULES AVAILABLE TO PLAN — grouped by thematic area with CP budget remaining.
+    These have been Python-curated: area names are authoritative, already-completed
+    modules are removed, each module appears at most once.
+    {available_modules}
+
+    RULES (all are hard constraints — violating any produces a broken plan):
+    - Use ONLY modules listed above — never invent a module name
+    - Each module may appear at most ONCE in the entire plan across all semesters
+      unless its Prerequisites column says it may be taken more than once
+    - Do NOT add modules to an area marked AREA FULL in its budget line
+    - Cover the highest-priority skill gaps first when choosing between modules
+    - Aim for roughly 30 CP per semester; respect prerequisites and semester offerings
+    {requirements}
+    {completed_status}
+    The ALREADY-COMPLETED CREDITS block above (when present) is authoritative — use
+    its exact "plan EXACTLY N more coursework CP" figure. Do not plan more than that
+    total. Schedule the Master's Thesis (30 CP) as its own final semester after all
+    coursework. Student constraints (CAP, not a target to fill): {constraints}
+
+    SEMESTER LABELLING — use seasonal names only, no numbers:
+    - The first planned semester is {current_semester}.
+    - Alternate Summer/Winter from there (Summer Semester YYYY → Winter Semester YYYY/YYYY+1 → ...).
+    - Do NOT write "Semester 1", "Semester 2", "1st Semester", etc. — only the seasonal name.
+
+    OUTPUT — all four sections are required:
+    1. **Summary** (2-3 sentences: where the student is, where they are heading)
+    2. **Semester plans** — one subsection per remaining semester, headed by its seasonal name
+       (e.g. ### Summer Semester 2026):
+       | Module | CP | Thematic Area | Closes gap | Why |
+       followed by **Total CP: N** after each semester table.
+       Fill "Thematic Area" with the EXACT area heading the module is listed under in
+       MODULES AVAILABLE TO PLAN above. If the module came from the "Other / Area
+       Unknown" group (or you are not sure which area it belongs to), write
+       "Unsure - verify" in that column.
+    3. **Thematic area budget table** (compute from your choices above):
+       | Area | Completed CP | Newly Planned CP | Total | Min | Max | Status |
+       Status = OK if Total is within [Min, Max]; OVER if above Max; SHORT if below Min.
+       Every area must show OK before you output the plan.
+       CRITICAL: The Min and Max columns MUST come from the AUTHORITATIVE PROGRAMME
+       RULES in the requirements block above (or the ALREADY-COMPLETED CREDITS block).
+       Never use min/max from the module handbook, the semester distribution table
+       (Regelstudienplan), or any other source. The completed-CP numbers must match the
+       ALREADY-COMPLETED CREDITS block exactly.
+    4. **Gaps not covered by any module** (and how to address them outside coursework)
+  expected_output: >
+    A Markdown study plan with all four sections: (1) 2-3 sentence summary, (2) one
+    subsection per semester with a module table (Module | CP | Thematic Area | Closes
+    gap | Why, with Thematic Area copied from the area heading or "Unsure - verify")
+    and a Total CP line, (3) thematic area budget table with Completed/Planned/Total/
+    Min/Max/Status columns showing OK for every area, (4) uncovered-gaps section.
+  agent: study_planner
 
 gap_task:
   description: >
@@ -66,10 +146,21 @@ plan_task:
     - Do not include modules the student has already completed (check the transcript table)
     - Aim for roughly 30 ECTS per semester; respect prerequisites and semester offerings
     - Cover the highest-priority skill gaps first
-    - Respect the per-area CP budget from the curator's area-budget table: the total CP
-      you assign to each thematic area across ALL semesters must fall within that area's
-      Min CP–Max CP range. Show the running area totals in the Thesis/electives section.
-    - Student constraints (honor these): {constraints}
+    - Respect the per-area CP budget: the credits ALREADY COMPLETED in an area plus
+      the credits you newly plan for it must fall within that area's Min CP–Max CP
+      range. Show the running area totals (completed + planned) in the Thesis/electives
+      section.
+    - Plan ONLY the remaining credits: subtract what the student has already completed
+      in each area (from the transcript), then plan just enough new modules to reach
+      each area's minimum and the coursework total. Use as few semesters as the
+      remaining credits need — do NOT pad to a fixed number of semesters — then the thesis.
+    {requirements}
+    {completed_status}
+    The ALREADY-COMPLETED CREDITS block above (when present) is computed in code and
+    is authoritative — use its exact "plan EXACTLY N more coursework CP" figure and
+    per-area room. Do NOT plan more than that total, and do NOT exceed any area's
+    maximum. Schedule the Master's Thesis as its own final semester.
+    - Student constraints (honor these as a CAP, not a target to fill): {constraints}
     Output sections:
     1. **Summary** (2-3 sentences: where the student is, where they're heading)
     2. **Semester plans** — one subsection per remaining semester with a table:
@@ -78,8 +169,11 @@ plan_task:
     3. **Thesis/electives advice** (2-3 sentences if applicable)
     4. **Gaps not covered by any module** (and how to close them outside coursework)
   expected_output: >
-    A complete Markdown study plan with summary, per-semester module tables
-    with credit totals and one-line justifications, and uncovered-gaps section.
+    A complete Markdown study plan with: (1) summary paragraph, (2) per-semester
+    module tables with Module | CP | Closes gap | Why columns and total CP per
+    semester, (3) a thematic area budget table — Area | Completed CP | Planned CP |
+    Total | Min | Max — confirming every area falls within its allowed range,
+    (4) uncovered-gaps section.
   agent: study_planner
   context:
     - profile_task

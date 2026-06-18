@@ -25,8 +25,10 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    from study_planner.api.observability import init_sentry
     from study_planner.api.routes import account, auth, legal, plans
 
+    init_sentry("api")  # no-op unless SENTRY_DSN is set
     app = FastAPI(title="Study Planner API", version="1.0", lifespan=lifespan)
 
     # CORS — lock to the frontend origin in prod via ALLOWED_ORIGINS.
@@ -45,6 +47,16 @@ def create_app() -> FastAPI:
     @app.get("/healthz", tags=["health"])
     async def healthz():
         return {"status": "ok"}
+
+    @app.get("/status", tags=["health"])
+    async def service_status():
+        """Public: is plan generation available, or paused (free-tier exhausted)?
+        The frontend polls this to show a global banner + disable the submit CTA."""
+        from study_planner.api.cooldown import cooldown_remaining, retry_at
+        from study_planner.api.schemas import StatusOut
+        rem = cooldown_remaining()
+        at = retry_at()
+        return StatusOut(quota_available=(rem == 0), retry_at=at, cooldown_seconds=rem)
 
     return app
 

@@ -45,10 +45,11 @@ def _serialize_validation(v) -> dict:
 
 
 # Indirection so tests can inject a fake planner without LLM calls / API keys.
-def _default_planner(data_dir: str, constraints):
+# progress_cb (optional) receives user-facing phase strings during the run.
+def _default_planner(data_dir: str, constraints, progress_cb=None):
     from study_planner.main import plan_studies
     return plan_studies(data_dir, save_report=False, validate=True,
-                        constraints=constraints)
+                        constraints=constraints, progress_cb=progress_cb)
 
 
 planner_fn = _default_planner
@@ -72,10 +73,13 @@ async def run_plan_job(job_id: str, data_dir: str, constraints_dict: dict,
         await session.commit()
 
         try:
+            from study_planner.api.progress import set_phase
             constraints = PlanConstraints(**constraints_dict) if constraints_dict else PlanConstraints()
             # crew.kickoff is blocking; run off the event loop so eager mode
-            # doesn't stall the server.
-            result = await asyncio.to_thread(planner_fn, data_dir, constraints)
+            # doesn't stall the server. progress_cb writes the live phase the UI polls.
+            result = await asyncio.to_thread(
+                planner_fn, data_dir, constraints,
+                lambda ph: set_phase(job_id, ph))
 
             plan = Plan(
                 job_id=job.id, user_id=owner_id,
@@ -90,14 +94,28 @@ async def run_plan_job(job_id: str, data_dir: str, constraints_dict: dict,
             job.finished_at = _now()
             await session.commit()
         except Exception as e:  # per-job isolation — surface, never swallow
+            from study_planner.llm_config import is_daily_quota_error
             await session.rollback()
             job = (await session.execute(
                 select(PlanJob).where(PlanJob.id == job_id))).scalar_one()
             job.status = "failed"
-            job.error = str(e)[:1000]
             job.finished_at = _now()
+            if is_daily_quota_error(str(e)):
+                # OUR shared free tier is spent. Pause generation for everyone and
+                # tell the user to come back later (quota.py won't charge this job).
+                from datetime import timedelta
+                from study_planner.api.cooldown import set_cooldown
+                cooldown_s = settings.quota_cooldown_hours * 3600
+                set_cooldown(cooldown_s)
+                job.failure_reason = "quota_exhausted"
+                job.retry_at = _now() + timedelta(seconds=cooldown_s)
+                job.error = "Our free-tier AI quota is used up right now."
+            else:
+                job.error = str(e)[:1000]
             await session.commit()
         finally:
+            from study_planner.api.progress import clear_phase
+            clear_phase(job_id)  # phase only meaningful while running
             shutil.rmtree(data_dir, ignore_errors=True)  # ephemeral: always delete
 
 

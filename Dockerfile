@@ -9,15 +9,21 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# System deps occasionally needed by crewai/litellm wheels.
+# System deps: build-essential for some wheels; tesseract-ocr + poppler-utils for
+# the OCR ingest path (scanned/image PDFs -> text).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    tesseract-ocr \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps first for layer caching.
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN pip install --upgrade pip && pip install ".[api]"
+RUN pip install --upgrade pip && pip install ".[api,ingest]"
+
+# Bundled sample inputs for the "try the demo" flow (read at /app/sample_data).
+COPY sample_data ./sample_data
 
 # Default: web service. Override the command for the worker.
 EXPOSE 8000

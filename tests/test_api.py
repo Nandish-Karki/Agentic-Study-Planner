@@ -34,7 +34,7 @@ from study_planner.api.ratelimit import limiter
 from study_planner.validate import ValidationReport
 
 
-def _fake_planner(data_dir, constraints):
+def _fake_planner(data_dir, constraints, progress_cb=None):
     return {
         "study_plan": "### Semester 1\n\n| Module | CP |\n|---|---|\n| Demo | 6 |\n\n**Total CP:** 6",
         "skill_gaps": "- gap one",
@@ -133,6 +133,15 @@ def test_full_flow_signup_verify_plan(client):
     assert body["validation"]["ok"] is True
 
 
+def test_demo_plan_runs(client):
+    email, _, v = _signup(client)
+    _verify(client, v)
+    token = _login(client, email)
+    r = client.post("/plans/demo", headers=_auth(token))
+    assert r.status_code == 201, r.text
+    assert r.json()["status"] == "succeeded"  # eager + stub planner
+
+
 def test_idor_isolation_404(client):
     # user A creates a plan
     a_email, _, a_v = _signup(client)
@@ -181,7 +190,7 @@ def test_job_failure_is_isolated_and_temp_cleaned(client):
     the ephemeral temp workspace is still deleted."""
     import glob
 
-    def _boom(data_dir, constraints):
+    def _boom(data_dir, constraints, progress_cb=None):
         raise RuntimeError("simulated crew failure")
 
     before = set(glob.glob(os.path.join(tempfile.gettempdir(), "sp_job_*")))

@@ -15,12 +15,14 @@ from study_planner.api.audit import audit, log_event
 from study_planner.api.config import settings
 from study_planner.api.db import get_session
 from study_planner.api.deps import client_ip, get_current_user
+from study_planner.api.email import (
+    send_password_reset_email, send_verification_email)
 from study_planner.api.legal import PRIVACY_VERSION, TOS_VERSION
 from study_planner.api.models import Consent, Profile, User
 from study_planner.api.ratelimit import check_auth_rate
 from study_planner.api.schemas import (
     LoginRequest, PasswordResetConfirm, PasswordResetRequest,
-    SignupRequest, TokenResponse, UserOut,
+    ResendVerificationRequest, SignupRequest, TokenResponse, UserOut,
 )
 from study_planner.api.security import (
     decode_token, hash_password, make_access_token, make_reset_token,
@@ -52,10 +54,29 @@ async def signup(body: SignupRequest, request: Request,
     await session.commit()
 
     token = make_verify_token(user.id)
+    await send_verification_email(user.email, token)
     out = {"id": user.id, "email": user.email,
            "message": "Account created. Check your email to verify."}
     if settings.debug:
         out["verify_token"] = token  # dev only — prod emails this
+    return out
+
+
+@router.post("/resend-verification", response_model=dict)
+async def resend_verification(body: ResendVerificationRequest, request: Request,
+                              session: AsyncSession = Depends(get_session)):
+    if not check_auth_rate(client_ip(request)):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            "Too many attempts. Try again later.")
+    user = (await session.execute(
+        select(User).where(User.email == body.email))).scalar_one_or_none()
+    # Don't disclose whether the email exists or is already verified.
+    out = {"message": "If that email is registered and unverified, a new link has been sent."}
+    if user is not None and not user.is_verified:
+        token = make_verify_token(user.id)
+        await send_verification_email(user.email, token)
+        if settings.debug:
+            out["verify_token"] = token  # dev only
     return out
 
 
@@ -102,8 +123,11 @@ async def password_reset_request(body: PasswordResetRequest, request: Request,
         select(User).where(User.email == body.email))).scalar_one_or_none()
     # Always return the same response — don't disclose whether the email exists.
     out = {"message": "If that email exists, a reset link has been sent."}
-    if user is not None and settings.debug:
-        out["reset_token"] = make_reset_token(user.id)  # dev only
+    if user is not None:
+        token = make_reset_token(user.id)
+        await send_password_reset_email(user.email, token)
+        if settings.debug:
+            out["reset_token"] = token  # dev only
     return out
 
 

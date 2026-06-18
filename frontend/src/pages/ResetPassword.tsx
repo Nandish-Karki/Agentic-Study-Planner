@@ -1,10 +1,12 @@
-import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState, type FormEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import AuthCard, { btnCls, inputCls } from "../components/AuthCard";
 
 // Two-step reset on one screen: request a token, then set a new password with it.
+// Arriving from the email link (/reset?token=…) skips straight to step two.
 export default function ResetPassword() {
+  const [params] = useSearchParams();
   const [email, setEmail] = useState("");
   const [token, setToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -12,6 +14,15 @@ export default function ResetPassword() {
   const [info, setInfo] = useState("");
   const [busy, setBusy] = useState(false);
   const [requested, setRequested] = useState(false);
+
+  useEffect(() => {
+    const t = params.get("token");
+    if (t) {
+      setToken(t);
+      setRequested(true);
+      setInfo("Enter a new password to finish resetting your account.");
+    }
+  }, [params]);
 
   async function request(e: FormEvent) {
     e.preventDefault();

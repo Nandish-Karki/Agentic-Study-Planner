@@ -1,15 +1,53 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { ArrowLeft, BookOpen, CheckCircle2, AlertTriangle, Download, Printer } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type Plan } from "../api/client";
 import AppShell from "../components/AppShell";
 
+function unwrapFence(md: string | undefined | null): string {
+  const s = (md ?? "").trim();
+  if (!s.startsWith("```")) return s;
+  const lines = s.split("\n");
+  if (lines.length >= 2 && lines[lines.length - 1].trim() === "```") {
+    return lines.slice(1, -1).join("\n").trim();
+  }
+  return s;
+}
+
+const mdComponents = {
+  table: (props: any) => (
+    <div className="overflow-x-auto my-4 rounded-lg border border-white/10">
+      <table {...props} />
+    </div>
+  ),
+};
+
+function Stat({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3">
+      <div className="text-2xl font-semibold text-white">{value}</div>
+      <div className="text-[11px] uppercase tracking-wider text-slate-400 mt-0.5">
+        {label}
+      </div>
+    </div>
+  );
+}
+
+type Tab = "plan" | "profile" | "catalog";
+
+const TAB_LABELS: Record<Tab, string> = {
+  plan: "Study Plan",
+  profile: "Your Profile",
+  catalog: "Module Catalog",
+};
+
 export default function PlanView() {
   const { id } = useParams<{ id: string }>();
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState<Tab>("plan");
 
   useEffect(() => {
     if (!id) return;
@@ -17,11 +55,70 @@ export default function PlanView() {
   }, [id]);
 
   const v = plan?.validation;
-  const areaCp = (v?.stats?.area_cp ?? {}) as Record<string, number>;
+  const stats = (v?.stats ?? {}) as Record<string, any>;
+  const areaCp = (stats.area_cp ?? {}) as Record<string, number>;
+  type AreaDetail = { completed: number; planned: number; min: number; max: number; project_cp: number | null };
+  const areaDetail = (stats.area_detail ?? {}) as Record<string, AreaDetail>;
+  const hasDetail = Object.keys(areaDetail).length > 0;
+  const flaggedAreas = new Set(
+    (v?.errors ?? [])
+      .filter((f) => f.rule.toLowerCase().includes("area"))
+      .flatMap((f) => Object.keys(areaCp).filter((a) => f.message.includes(a))),
+  );
+
+  function handleDownload() {
+    if (!plan) return;
+    const date = plan.created_at
+      ? new Date(plan.created_at).toLocaleDateString("en-CA")
+      : new Date().toLocaleDateString("en-CA");
+
+    const content = [
+      `# Your Study Plan — ${date}`,
+      "",
+      "## Study Plan",
+      plan.study_plan_md ?? "",
+      "",
+      "## Skill Gap Analysis",
+      plan.skill_gaps_md ?? "",
+      "",
+      "## Student Profile",
+      plan.profile_md ?? "",
+      "",
+      "## Module Catalog",
+      plan.module_catalog_md ?? "",
+    ].join("\n");
+
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "study-plan.md";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handlePrint() {
+    window.print();
+  }
+
+  const tabs: Tab[] = [
+    "plan",
+    ...(plan?.profile_md ? (["profile"] as Tab[]) : []),
+    ...(plan?.module_catalog_md ? (["catalog"] as Tab[]) : []),
+  ];
+
+  const tabContent: Record<Tab, string> = {
+    plan: unwrapFence(plan?.study_plan_md) || "_No plan content._",
+    profile: unwrapFence(plan?.profile_md) || "_No profile content._",
+    catalog: unwrapFence(plan?.module_catalog_md) || "_No catalog content._",
+  };
 
   return (
     <AppShell>
-      <Link to="/app" className="inline-flex items-center gap-1.5 text-slate-400 hover:text-white mb-6">
+      <Link
+        to="/app"
+        className="inline-flex items-center gap-1.5 text-slate-400 hover:text-white mb-6 print:hidden"
+      >
         <ArrowLeft className="w-4 h-4" /> Back to plans
       </Link>
 
@@ -29,99 +126,209 @@ export default function PlanView() {
       {!plan && !error && <p className="text-slate-500">Loading…</p>}
 
       {plan && (
-        <div className="grid lg:grid-cols-3 gap-8">
-          {/* plan body */}
-          <article className="lg:col-span-2 prose-plan">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {plan.study_plan_md || "_No plan content._"}
-            </ReactMarkdown>
-          </article>
-
-          {/* validity sidebar */}
-          <aside className="space-y-6">
-            {v && (
-              <div
-                className={`rounded-xl p-5 border ${
-                  v.ok
-                    ? "border-emerald-500/30 bg-emerald-500/5"
-                    : "border-red-500/30 bg-red-500/5"
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  {v.ok ? (
-                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                  ) : (
-                    <XCircle className="w-5 h-5 text-red-400" />
-                  )}
-                  <span className="font-semibold">
-                    {v.ok ? "Validated" : `${v.errors.length} rule issue(s)`}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-400 mt-2">
-                  {v.ok
-                    ? "Every module is real, nothing is retaken, prerequisites, take-limits, area budgets and credit totals all check out."
-                    : "The AI broke a hard rule — caught automatically so you don't follow a broken plan."}
-                </p>
-
-                {v.errors.length > 0 && (
-                  <ul className="mt-3 space-y-2">
-                    {v.errors.map((f, i) => (
-                      <li key={i} className="text-xs text-red-300">
-                        <span className="font-semibold uppercase">{f.rule}:</span>{" "}
-                        {f.message}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-
-                {v.warnings.length > 0 && (
-                  <details className="mt-3">
-                    <summary className="text-xs text-amber-300 cursor-pointer flex items-center gap-1">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      {v.warnings.length} softer warning(s)
-                    </summary>
-                    <ul className="mt-2 space-y-2">
-                      {v.warnings.map((f, i) => (
-                        <li key={i} className="text-xs text-amber-200/80">
-                          <span className="font-semibold uppercase">{f.rule}:</span>{" "}
-                          {f.message}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
+        <div className="space-y-6">
+          {/* header */}
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <BookOpen className="w-6 h-6 text-accent shrink-0" />
+              <div>
+                <h1 className="text-2xl font-semibold leading-tight">Your study plan</h1>
+                {plan.created_at && (
+                  <p className="text-xs text-slate-500">
+                    Generated {new Date(plan.created_at).toLocaleString()}
+                  </p>
                 )}
               </div>
-            )}
+            </div>
+            <div className="flex items-center gap-2 print:hidden">
+              <button
+                onClick={handleDownload}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 bg-white/[0.02] text-sm text-slate-300 hover:text-white hover:bg-white/[0.06] transition"
+              >
+                <Download className="w-4 h-4" />
+                Download .md
+              </button>
+              <button
+                onClick={handlePrint}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 bg-white/[0.02] text-sm text-slate-300 hover:text-white hover:bg-white/[0.06] transition"
+              >
+                <Printer className="w-4 h-4" />
+                Print / PDF
+              </button>
+            </div>
+          </div>
 
-            {Object.keys(areaCp).length > 0 && (
-              <div className="rounded-xl p-5 border border-white/10 bg-white/[0.02]">
-                <h3 className="text-sm font-semibold uppercase tracking-widest text-slate-400">
-                  Credits per area
-                </h3>
-                <ul className="mt-3 space-y-2">
-                  {Object.entries(areaCp).map(([area, cp]) => (
-                    <li key={area} className="flex justify-between text-sm">
-                      <span className="text-slate-300">{area}</span>
-                      <span className="text-white font-semibold">{cp} CP</span>
+          {/* headline stats */}
+          {(stats.semesters != null || stats.planned_modules != null) && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {stats.semesters != null && (
+                <Stat label="Semesters" value={stats.semesters} />
+              )}
+              {stats.planned_modules != null && (
+                <Stat label="Planned modules" value={stats.planned_modules} />
+              )}
+              {stats.completed_modules != null && (
+                <Stat label="Already completed" value={stats.completed_modules} />
+              )}
+              {stats.remaining_coursework_cp != null && (
+                <Stat label="Remaining CP" value={stats.remaining_coursework_cp} />
+              )}
+            </div>
+          )}
+
+          {/* validation status — the deterministic trust badge */}
+          {v && (
+            <div
+              className={`rounded-xl border p-4 ${
+                v.ok
+                  ? "border-emerald-500/30 bg-emerald-500/10"
+                  : "border-red-500/30 bg-red-500/10"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                {v.ok ? (
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+                )}
+                <span className="font-semibold">
+                  {v.ok
+                    ? "Validated — every hard rule checks out"
+                    : `${v.errors.length} issue${v.errors.length === 1 ? "" : "s"} the planner got wrong`}
+                </span>
+              </div>
+              {(v.errors.length > 0 || v.warnings.length > 0) && (
+                <ul className="mt-3 space-y-1 text-sm">
+                  {v.errors.map((f, i) => (
+                    <li key={`e${i}`} className="flex gap-2 text-red-200">
+                      <span className="text-red-400">✗</span>
+                      <span>{f.message}</span>
+                    </li>
+                  ))}
+                  {v.warnings.map((f, i) => (
+                    <li key={`w${i}`} className="flex gap-2 text-amber-200/90">
+                      <span className="text-amber-400">!</span>
+                      <span>{f.message}</span>
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
+              )}
+              <p className="mt-2 text-[11px] text-slate-400">
+                Checked in code (not by the AI): credit budgets, prerequisites,
+                duplicates, and your remaining-credit total.
+              </p>
+            </div>
+          )}
 
-            {plan.skill_gaps_md && (
-              <details className="rounded-xl p-5 border border-white/10 bg-white/[0.02]">
-                <summary className="text-sm font-semibold cursor-pointer">
-                  Skill-gap analysis
-                </summary>
-                <div className="prose-plan mt-3 text-sm">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {plan.skill_gaps_md}
-                  </ReactMarkdown>
+          {/* tab navigation */}
+          {tabs.length > 1 && (
+            <div className="flex gap-1 border-b border-white/10 print:hidden">
+              {tabs.map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                    activeTab === tab
+                      ? "bg-white/[0.06] text-white border border-b-transparent border-white/10"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  {TAB_LABELS[tab]}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* plan body + sidebar */}
+          <div className="grid lg:grid-cols-3 gap-6 items-start">
+            <article className="lg:col-span-2 min-w-0 rounded-xl border border-white/10 bg-white/[0.02] p-6 prose-plan">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                {tabContent[activeTab]}
+              </ReactMarkdown>
+            </article>
+
+            <aside className="space-y-6 lg:sticky lg:top-6 print:hidden">
+              {hasDetail ? (
+                <div className="rounded-xl p-5 border border-white/10 bg-white/[0.02]">
+                  <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+                    Credits per area
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    completed + planned vs the programme's min–max
+                  </p>
+                  <ul className="mt-3 space-y-3">
+                    {Object.entries(areaDetail).map(([area, d]) => {
+                      const total = d.completed + d.planned;
+                      const bad = total < d.min || total > d.max;
+                      const pct = d.max ? Math.min(100, (total / d.max) * 100) : 0;
+                      const minPct = d.max ? Math.min(100, (d.min / d.max) * 100) : 0;
+                      return (
+                        <li key={area} className="text-sm">
+                          <div className="flex justify-between gap-3">
+                            <span className={bad ? "text-red-300" : "text-slate-300"}>{area}</span>
+                            <span className={`font-semibold whitespace-nowrap ${bad ? "text-red-300" : "text-white"}`}>
+                              {total} CP
+                            </span>
+                          </div>
+                          <div className="relative mt-1 h-1.5 rounded bg-white/10">
+                            <div
+                              className={`absolute inset-y-0 left-0 rounded ${bad ? "bg-red-400/70" : "bg-accent/70"}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                            <div className="absolute inset-y-0 w-px bg-slate-300/60" style={{ left: `${minPct}%` }} />
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            {d.completed} done + {d.planned} planned · need {d.min}–{d.max}
+                            {d.project_cp ? ` · ${d.project_cp} CP project required` : ""}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
-              </details>
-            )}
-          </aside>
+              ) : (
+                Object.keys(areaCp).length > 0 && (
+                  <div className="rounded-xl p-5 border border-white/10 bg-white/[0.02]">
+                    <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+                      Credits per area
+                    </h3>
+                    <ul className="mt-3 space-y-2">
+                      {Object.entries(areaCp).map(([area, cp]) => {
+                        const bad = flaggedAreas.has(area);
+                        return (
+                          <li key={area} className="flex justify-between gap-3 text-sm">
+                            <span className={bad ? "text-red-300" : "text-slate-300"}>{area}</span>
+                            <span className={`font-semibold whitespace-nowrap ${bad ? "text-red-300" : "text-white"}`}>
+                              {cp} CP
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )
+              )}
+
+              {plan.skill_gaps_md && (
+                <details
+                  className="rounded-xl p-5 border border-white/10 bg-white/[0.02]"
+                  open
+                >
+                  <summary className="text-sm font-semibold cursor-pointer">
+                    Skill-gap analysis
+                  </summary>
+                  <div className="prose-plan mt-3 text-sm">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={mdComponents}
+                    >
+                      {unwrapFence(plan.skill_gaps_md)}
+                    </ReactMarkdown>
+                  </div>
+                </details>
+              )}
+            </aside>
+          </div>
         </div>
       )}
     </AppShell>
