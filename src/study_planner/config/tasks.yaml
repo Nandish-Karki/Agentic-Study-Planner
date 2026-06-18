@@ -95,7 +95,7 @@ plan_task_v2:
     - Alternate Summer/Winter from there (Summer Semester YYYY → Winter Semester YYYY/YYYY+1 → ...).
     - Do NOT write "Semester 1", "Semester 2", "1st Semester", etc. — only the seasonal name.
 
-    OUTPUT — all four sections are required:
+    OUTPUT — all three sections are required:
     1. **Summary** (2-3 sentences: where the student is, where they are heading)
     2. **Semester plans** — one subsection per remaining semester, headed by its seasonal name
        (e.g. ### Summer Semester 2026):
@@ -105,22 +105,14 @@ plan_task_v2:
        MODULES AVAILABLE TO PLAN above. If the module came from the "Other / Area
        Unknown" group (or you are not sure which area it belongs to), write
        "Unsure - verify" in that column.
-    3. **Thematic area budget table** (compute from your choices above):
-       | Area | Completed CP | Newly Planned CP | Total | Min | Max | Status |
-       Status = OK if Total is within [Min, Max]; OVER if above Max; SHORT if below Min.
-       Every area must show OK before you output the plan.
-       CRITICAL: The Min and Max columns MUST come from the AUTHORITATIVE PROGRAMME
-       RULES in the requirements block above (or the ALREADY-COMPLETED CREDITS block).
-       Never use min/max from the module handbook, the semester distribution table
-       (Regelstudienplan), or any other source. The completed-CP numbers must match the
-       ALREADY-COMPLETED CREDITS block exactly.
-    4. **Gaps not covered by any module** (and how to address them outside coursework)
+    3. **Gaps not covered by any module** (and how to address them outside coursework)
+    Do NOT output a thematic-area budget/summary table — the app computes and shows a
+    verified one in code. Just schedule the modules correctly in section 2.
   expected_output: >
-    A Markdown study plan with all four sections: (1) 2-3 sentence summary, (2) one
+    A Markdown study plan with all three sections: (1) 2-3 sentence summary, (2) one
     subsection per semester with a module table (Module | CP | Thematic Area | Closes
     gap | Why, with Thematic Area copied from the area heading or "Unsure - verify")
-    and a Total CP line, (3) thematic area budget table with Completed/Planned/Total/
-    Min/Max/Status columns showing OK for every area, (4) uncovered-gaps section.
+    and a Total CP line, (3) uncovered-gaps section. No area budget/summary table.
   agent: study_planner
 
 gap_task:

@@ -45,24 +45,25 @@ def _dump_artifacts(out_dir, sections: dict) -> None:
         (out / fname).write_text("" if content is None else str(content), encoding="utf-8")
 
 
-def _build_planner_module_table(
+def _select_menu_modules(
     catalog_md: str,
     requirements,
     completed_by_area: dict,
     completed_module_names: list[str],
     skill_gaps: str = "",
-) -> str:
-    """Python-normalize the curator's raw module table for the planner.
+) -> dict | None:
+    """Two-pass curation of the curator/handbook module table to the remaining
+    budget. Returns a 'menu' dict consumed by BOTH _render_menu (the planner's text
+    menu) and _assemble_coursework_plan (the deterministic backstop), so the offered
+    menu and the code-built fallback can never disagree.
 
-    Groups modules by thematic area (fuzzy-matching the curator's area strings
-    to the authoritative requirement area names), filters out already-completed
-    modules, and annotates each area section with remaining budget. The planner
-    receives a single pre-joined table instead of having to reconcile three
-    separate information sources (requirements block + completed_status block +
-    raw curator table) itself.
+    Pass A reserves each area's remaining MINIMUM first (sum of mins <= coursework
+    total, so it always fits) -- the menu can then satisfy every minimum; Pass B
+    fills the rest of the budget by gap relevance / CP across areas. Still capped by
+    remaining_total AND each area's max, so it can't over-plan.
 
-    Returns raw catalog_md unchanged when no requirements are loaded (graceful
-    fallback to the old single-crew flow).
+    Returns None when there is nothing to curate (no requirements schedule, or an
+    unparseable catalog); the caller then falls back to the raw catalog markdown.
     """
     import re
     from study_planner.validate import (
@@ -71,7 +72,7 @@ def _build_planner_module_table(
     )
 
     if not requirements or not requirements.areas:
-        return catalog_md
+        return None
 
     area_keys = list(requirements.areas.keys())          # normalized strings
     area_display = {k: a.name for k, a in requirements.areas.items()}
@@ -85,7 +86,7 @@ def _build_planner_module_table(
             module_table = t
             break
     if module_table is None:
-        return catalog_md  # curator didn't produce a parseable table — fall back
+        return None  # curator didn't produce a parseable table -- fall back
 
     mcol = _find_col(module_table.headers, "module", "name")
     acol = _find_col(module_table.headers, "thematic area", "area", "subject area", "category")
@@ -143,8 +144,8 @@ def _build_planner_module_table(
     remaining_total = None
     reserve_mode = False                      # True when areas still need their min
     infeasible_areas: dict[str, int] = {}     # area key -> CP short after selection
+    done_total = sum(completed_by_area.values()) if completed_by_area else 0
     if getattr(requirements, "coursework_cp", None) is not None:
-        done_total = sum(completed_by_area.values()) if completed_by_area else 0
         remaining_total = max(0, requirements.coursework_cp - done_total)
 
     if remaining_total is not None:
@@ -219,13 +220,43 @@ def _build_planner_module_table(
 
         by_area = selected
 
-    # Render grouped markdown
+    return {
+        "by_area": by_area,
+        "keep_cols": keep_cols,
+        "mcol": mcol,
+        "cpcol": cpcol,
+        "skillcol": skillcol,
+        "area_keys": area_keys,
+        "area_display": area_display,
+        "unmatched": unmatched,
+        "remaining_total": remaining_total,
+        "done_total": done_total,
+        "reserve_mode": reserve_mode,
+        "infeasible_areas": infeasible_areas,
+        "completed_by_area": dict(completed_by_area or {}),
+        "requirements": requirements,
+    }
+
+
+def _render_menu(menu: dict) -> str:
+    """Render the curated menu (from _select_menu_modules) as the area-grouped
+    Markdown table the planner LLM receives, with per-area budget annotations."""
+    requirements = menu["requirements"]
+    area_keys = menu["area_keys"]
+    by_area = menu["by_area"]
+    keep_cols = menu["keep_cols"]
+    unmatched = menu["unmatched"]
+    remaining_total = menu["remaining_total"]
+    reserve_mode = menu["reserve_mode"]
+    infeasible_areas = menu["infeasible_areas"]
+    completed_by_area = menu["completed_by_area"]
+
     header_row = "| " + " | ".join(keep_cols) + " |"
     sep_row = "|" + "|".join(["---"] * len(keep_cols)) + "|"
 
     lines: list[str] = []
     if remaining_total is not None:
-        done_so_far = sum(completed_by_area.values()) if completed_by_area else 0
+        done_so_far = menu["done_total"]
         if reserve_mode:
             # From-scratch / unmet-minimums plan: the menu is curated to hit every
             # area minimum and the coursework total -- so schedule ALL of it. The
@@ -260,7 +291,7 @@ def _build_planner_module_table(
         needed = max(0, a.min_cp - done)
 
         if room == 0:
-            budget = f"AREA FULL (max {a.max_cp} CP already reached — do not add more)"
+            budget = f"AREA FULL (max {a.max_cp} CP already reached -- do not add more)"
         elif needed > 0:
             budget = (f"need {needed} more CP to reach minimum {a.min_cp}; "
                       f"may add at most {room} more CP before hitting max {a.max_cp}")
@@ -287,7 +318,7 @@ def _build_planner_module_table(
         lines.append("")
 
     if unmatched:
-        lines.append("### Other / Area Unknown — use only if the above areas all have room")
+        lines.append("### Other / Area Unknown -- use only if the above areas all have room")
         lines.append(header_row)
         lines.append(sep_row)
         for row in unmatched:
@@ -295,6 +326,23 @@ def _build_planner_module_table(
             lines.append("| " + " | ".join(cells) + " |")
 
     return "\n".join(lines)
+
+
+def _build_planner_module_table(
+    catalog_md: str,
+    requirements,
+    completed_by_area: dict,
+    completed_module_names: list[str],
+    skill_gaps: str = "",
+) -> str:
+    """Back-compat wrapper: curate then render the planner's module menu. Returns
+    the raw catalog when there's nothing to curate (no requirements schedule)."""
+    menu = _select_menu_modules(
+        catalog_md, requirements, completed_by_area, completed_module_names,
+        skill_gaps=skill_gaps)
+    if menu is None:
+        return catalog_md
+    return _render_menu(menu)
 
 
 def _ensure_thesis(study_plan: str, requirements) -> tuple[str, bool]:
@@ -316,6 +364,186 @@ def _ensure_thesis(study_plan: str, requirements) -> tuple[str, bool]:
         f"**Total CP: {cp}**\n"
     )
     return study_plan + block, True
+
+
+def _next_semester_label(label: str) -> str:
+    """Next seasonal label: 'Summer Semester Y' -> 'Winter Semester Y/Y+1' ->
+    'Summer Semester Y+1'. Returns the input unchanged if it isn't seasonal."""
+    import re
+    m = re.search(r"(summer|winter)\s+semester\s+(\d{4})(?:\s*/\s*(\d{4}))?",
+                  label, re.I)
+    if not m:
+        return label
+    season, y1 = m.group(1).lower(), int(m.group(2))
+    if season == "summer":
+        return f"Winter Semester {y1}/{y1 + 1}"
+    y2 = int(m.group(3)) if m.group(3) else y1 + 1
+    return f"Summer Semester {y2}"
+
+
+def _semester_labels(start: str, n: int) -> list[str]:
+    """n consecutive seasonal labels beginning at `start`."""
+    labels = [start]
+    for _ in range(max(0, n - 1)):
+        labels.append(_next_semester_label(labels[-1]))
+    return labels
+
+
+def _llm_narrative_map(plan_md: str) -> dict:
+    """{normalized module name: (closes_gap, why)} from the LLM plan's tables, so a
+    deterministic rebuild can carry the model's per-module narrative where a name
+    still matches."""
+    from study_planner.validate import parse_markdown_tables, _find_col, _norm
+    out: dict[str, tuple[str, str]] = {}
+    for t in parse_markdown_tables(plan_md):
+        mcol = _find_col(t.headers, "module", "name")
+        if not mcol:
+            continue
+        gapcol = _find_col(t.headers, "closes gap", "gap", "closes")
+        whycol = _find_col(t.headers, "why", "rationale", "reason")
+        for row in t.rows:
+            name = row.get(mcol, "").strip()
+            if not name or _norm(name) in {"module", "name", "total"}:
+                continue
+            gap = row.get(gapcol, "").strip() if gapcol else ""
+            why = row.get(whycol, "").strip() if whycol else ""
+            if gap or why:
+                out[_norm(name)] = (gap, why)
+    return out
+
+
+def _extract_uncovered_section(plan_md: str) -> str:
+    """The LLM plan's 'Gaps not covered ...' section (heading + body), or '' if
+    absent -- carried into a deterministic rebuild so that advice isn't lost."""
+    import re
+    blocks = re.split(r"(?m)^(#{2,4}\s+.*)$", plan_md)
+    for k in range(1, len(blocks), 2):
+        htext = blocks[k].strip("# ").strip().lower()
+        if "not covered" in htext or "uncovered" in htext or \
+                ("gap" in htext and "cover" in htext):
+            body = blocks[k + 1] if k + 1 < len(blocks) else ""
+            return blocks[k].strip() + "\n" + body.rstrip()
+    return ""
+
+
+def _assemble_coursework_plan(menu: dict, requirements, constraints,
+                              current_semester: str, llm_plan_md: str) -> str:
+    """Deterministically build the plan body from the curated menu so every area
+    reaches its minimum, the coursework total is covered, and the horizon fits.
+
+    Used as a backstop only when the LLM plan fails validation -- the menu already
+    OFFERED enough; the model just didn't schedule it. Per the playbook, code
+    counts/distributes; the LLM's per-module narrative (Closes gap / Why) is carried
+    over where a name matches, else a short code-written note is used.
+    """
+    import math
+    from study_planner.validate import _to_int, _norm, _best_match, NAME_MATCH_THRESHOLD
+
+    area_display = menu["area_display"]
+    by_area = menu["by_area"]
+    mcol, cpcol, skillcol = menu["mcol"], menu["cpcol"], menu["skillcol"]
+
+    # Foundational-first ordering reduces prerequisite warnings in the rebuild.
+    def _area_rank(key: str) -> int:
+        n = _norm(area_display[key])
+        if "fundamental" in n:
+            return 0
+        if "data processing" in n:
+            return 1
+        if "learning" in n:
+            return 2
+        if "applied" in n:
+            return 3
+        return 4
+    ordered_keys = sorted(menu["area_keys"], key=_area_rank)
+
+    narr = _llm_narrative_map(llm_plan_md)
+    narr_keys = list(narr.keys())
+
+    modules: list[tuple[str, int, str, str, str]] = []  # name, cp, area, gap, why
+    for key in ordered_keys:
+        for row in by_area.get(key, []):
+            name = row.get(mcol, "").strip()
+            cp = (_to_int(row.get(cpcol, "")) if cpcol else None) or 0
+            if not name or cp <= 0:
+                continue
+            skills = row.get(skillcol, "").strip() if skillcol else ""
+            gap, why = "", ""
+            if narr_keys:
+                km, score = _best_match(name, narr_keys)
+                if km and score >= NAME_MATCH_THRESHOLD:
+                    gap, why = narr[km]
+            why = why or skills or f"Builds {area_display[key]} competency."
+            gap = gap or skills or f"Reaches the {area_display[key]} minimum."
+            modules.append((name, cp, area_display[key], gap, why))
+
+    total_cp = sum(m[1] for m in modules)
+    thesis_cp = requirements.thesis_cp or 30
+
+    # Coursework semesters: ~30 CP each, capped so coursework + thesis fits the
+    # target horizon. A >36 CP load (if forced to fit) is only a WARNING.
+    coursework_slots = max(1, constraints.target_semesters - 1)
+    n = max(1, math.ceil(total_cp / 30)) if total_cp else 1
+    n = min(n, coursework_slots)
+    target_per = math.ceil(total_cp / n) if n else total_cp
+
+    bins: list[list[tuple]] = [[] for _ in range(n)]
+    loads = [0] * n
+    for mod in modules:
+        idx = next((i for i in range(n) if loads[i] + mod[1] <= target_per), None)
+        if idx is None:
+            idx = loads.index(min(loads))
+        bins[idx].append(mod)
+        loads[idx] += mod[1]
+    bins = [b for b in bins if b]
+
+    labels = _semester_labels(current_semester, len(bins) + 1)  # +1 for the thesis
+
+    out: list[str] = ["## Summary",
+                      (f"This plan schedules the {total_cp} CP of remaining coursework "
+                       f"across {len(bins)} semester(s) so every thematic area reaches "
+                       f"its required minimum, followed by the {thesis_cp} CP Master's "
+                       f"Thesis. The module selection and credit balance were computed "
+                       f"in code to satisfy the programme's area rules."), ""]
+    for label, b in zip(labels, bins):
+        out.append(f"### {label}")
+        out.append("| Module | CP | Thematic Area | Closes gap | Why |")
+        out.append("|--------|----|---------------|------------|-----|")
+        for name, cp, area_name, gap, why in b:
+            out.append(f"| {name} | {cp} | {area_name} | {gap} | {why} |")
+        out.append(f"\n**Total CP: {sum(m[1] for m in b)}**\n")
+
+    thesis_label = labels[len(bins)] if len(labels) > len(bins) \
+        else _next_semester_label(labels[-1] if labels else current_semester)
+    out.append(f"### {thesis_label}: Master's Thesis")
+    out.append("| Module | CP | Thematic Area | Closes gap | Why |")
+    out.append("|--------|----|---------------|------------|-----|")
+    out.append(f"| Master's Thesis (Masterarbeit) | {thesis_cp} | n/a | N/A | "
+               f"Final independent research thesis required to graduate. |")
+    out.append(f"\n**Total CP: {thesis_cp}**\n")
+
+    uncovered = _extract_uncovered_section(llm_plan_md)
+    if uncovered:
+        out.append(uncovered)
+
+    return "\n".join(out)
+
+
+def _ensure_area_minimums(study_plan: str, validation, menu: dict | None,
+                          requirements, constraints,
+                          current_semester: str) -> tuple[str, bool]:
+    """Deterministic backstop: when the LLM plan still FAILS validation, rebuild the
+    coursework body from the curated menu so area minimums, the coursework total and
+    the semester horizon are guaranteed in code rather than in the prompt. A PASSING
+    plan is returned untouched (a continuing student's good plan is never rewritten).
+    Returns (plan, replaced)."""
+    if validation is None or validation.ok:
+        return study_plan, False
+    if not menu or menu.get("remaining_total") is None:
+        return study_plan, False  # no curated menu (legacy flow) -- leave as-is
+    rebuilt = _assemble_coursework_plan(
+        menu, requirements, constraints, current_semester, study_plan)
+    return rebuilt, True
 
 
 def plan_studies(data_dir: str = "data", save_report: bool = True,
@@ -533,9 +761,10 @@ def plan_studies(data_dir: str = "data", save_report: bool = True,
 
         # ── Python normalization: build a clean, area-grouped module table ───
         completed_module_names = parse_completed(profile)
-        available_modules = _build_planner_module_table(
+        menu = _select_menu_modules(
             module_catalog, requirements, completed_by_area, completed_module_names,
             skill_gaps=skill_gaps)
+        available_modules = _render_menu(menu) if menu else module_catalog
         _dbg["04_available_modules.md"] = available_modules
         _flush_debug()
 
@@ -600,11 +829,17 @@ def plan_studies(data_dir: str = "data", save_report: bool = True,
             # Re-plan: feed the concrete violations back as a correction directive.
             correction = build_correction(validation)
 
-        # Guarantee a thesis is present (the planner sometimes omits it even though
-        # it's offered). Append it deterministically + re-validate (no LLM cost).
+        # Deterministic backstop + thesis guarantee. The menu already OFFERED enough
+        # CP per area (two-pass curation); when the LLM still ships a FAILING plan
+        # (an area below its minimum, too many semesters, short of the total), rebuild
+        # the coursework body from the curated menu so the guarantee lives in code,
+        # not the prompt. A PASSING plan (e.g. a continuing student's) is untouched.
+        # Then ensure a thesis is present, and re-validate once (no LLM cost).
         if validate and validation is not None:
+            study_plan, _rebuilt = _ensure_area_minimums(
+                study_plan, validation, menu, requirements, constraints, current_semester)
             study_plan, _appended = _ensure_thesis(study_plan, requirements)
-            if _appended:
+            if _rebuilt or _appended:
                 validation = validate_plan(study_plan, module_catalog, profile, constraints,
                                            requirements=requirements,
                                            completed_by_area=completed_by_area,
@@ -628,24 +863,28 @@ def plan_studies(data_dir: str = "data", save_report: bool = True,
                   f"{pathlib.Path(debug_dir).resolve()}")
         raise
 
-    # Deterministic, trustworthy budget table (the planner's own is unreliable).
+    # Deterministic, trustworthy budget table (the planner's own is unreliable). We
+    # EMBED it in the plan body, replacing the LLM's self-computed table (removed from
+    # tasks.yaml) that contradicted its own schedule (it labelled a 15/min-18 area OK).
     from study_planner.validate import render_area_budget_table
     area_budget_table = render_area_budget_table(validation) if validation else ""
+    if area_budget_table:
+        study_plan = (study_plan.rstrip()
+                      + "\n\n## Thematic Area Budget (verified in code)\n\n"
+                      + area_budget_table + "\n")
 
     report_path = None
     if save_report:
         out_dir = pathlib.Path(__file__).parent.parent.parent / "outputs"
         out_dir.mkdir(exist_ok=True)
         out_file = out_dir / "study_plan.md"
-        budget_section = (f"\n---\n\n# Validated Area Budgets (computed in code)\n\n"
-                          f"{area_budget_table}\n" if area_budget_table else "")
+        # study_plan already embeds the deterministic budget table (above).
         val_section = f"\n---\n\n# Plan Validation\n\n```\n{validation.summary()}\n```\n" \
             if validation else ""
         report = (
             f"# Personalized Study Plan\n\n"
             f"**Inputs:** `{data}`\n\n"
             f"---\n\n{study_plan}\n\n"
-            f"{budget_section}"
             f"---\n\n# Skill Gap Analysis\n\n{skill_gaps}\n"
             f"{val_section}"
         )
