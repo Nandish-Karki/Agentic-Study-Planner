@@ -126,17 +126,23 @@ def _build_planner_module_table(
         else:
             unmatched.append(row)
 
-    # ── Structural over-planning guard ──────────────────────────────────────
+    # ── Structural credit-budget guard (two-pass selection) ─────────────────
     # The planner ignores textual CP caps (proven: it planned 30 CP when 9
-    # remained, even after a correction). So we cap the MENU itself: when the
-    # exact remaining coursework CP is known, offer only modules that fit — in
-    # gap-priority order, areas still below their minimum first — while the
-    # running total stays within the remaining budget AND each area stays within
-    # its room. The planner then physically cannot over-plan: there aren't enough
-    # eligible modules. When remaining CP is unknown, the menu is unchanged.
+    # remained), so we curate the MENU itself to the remaining budget. A single
+    # greedy pass capped only by each area's MAX starves the low-priority areas
+    # BELOW their minimum for a new student (who must hit all four minimums at
+    # once) -- the observed bug: Fundamentals 9/12, Applied 12/18. So we select
+    # in two passes:
+    #   Pass A reserves each area's MINIMUM first (sum of mins <= coursework
+    #          total, so this always fits) -- the menu can then satisfy every min;
+    #   Pass B fills the remaining budget by gap relevance / CP across all areas.
+    # Still capped by remaining_total AND each area's max, so it can't over-plan.
+    # When remaining CP is unknown, the menu is unchanged.
     cpcol = _find_col(module_table.headers, "cp", "credit", "ects")
     skillcol = _find_col(module_table.headers, "key skills", "skills", "skill")
     remaining_total = None
+    reserve_mode = False                      # True when areas still need their min
+    infeasible_areas: dict[str, int] = {}     # area key -> CP short after selection
     if getattr(requirements, "coursework_cp", None) is not None:
         done_total = sum(completed_by_area.values()) if completed_by_area else 0
         remaining_total = max(0, requirements.coursework_cp - done_total)
@@ -158,25 +164,59 @@ def _build_planner_module_table(
             a = requirements.areas[key]
             return max(0, a.min_cp - completed_by_area.get(key, 0))
 
-        candidates = [(k, row) for k in area_keys for row in by_area[k]]
-        # required-area modules first, then by gap relevance, then larger CP
-        candidates.sort(
-            key=lambda kr: (_still_required(kr[0]) > 0, _gap_score(kr[1]), _row_cp(kr[1])),
-            reverse=True)
+        def _area_sorted(key) -> list[dict]:
+            # within an area: gap-relevant first, then larger CP
+            rows = [r for r in by_area[key] if _row_cp(r) > 0]
+            rows.sort(key=lambda r: (_gap_score(r), _row_cp(r)), reverse=True)
+            return rows
+
+        # Any area still below its minimum -> "schedule everything" mode (a new or
+        # early student); none -> a near-complete student, where over-planning is
+        # the risk and we keep the "plan at most N" cap.
+        reserve_mode = sum(_still_required(k) for k in area_keys) > 0
 
         selected: dict[str, list[dict]] = {k: [] for k in area_keys}
         running = 0
         used_per_area: dict[str, int] = {k: 0 for k in area_keys}
-        for k, row in candidates:
+        picked: set[int] = set()
+
+        def _try_add(key, row) -> bool:
+            nonlocal running
             cp = _row_cp(row)
-            if cp <= 0:
-                continue
-            a = requirements.areas[k]
-            room = max(0, a.max_cp - completed_by_area.get(k, 0)) - used_per_area[k]
+            if cp <= 0 or id(row) in picked:
+                return False
+            a = requirements.areas[key]
+            room = max(0, a.max_cp - completed_by_area.get(key, 0)) - used_per_area[key]
             if cp <= room and running + cp <= remaining_total:
-                selected[k].append(row)
+                selected[key].append(row)
+                picked.add(id(row))
                 running += cp
-                used_per_area[k] += cp
+                used_per_area[key] += cp
+                return True
+            return False
+
+        # Pass A -- reserve each area's MINIMUM so no area is starved below it.
+        for key in area_keys:
+            for row in _area_sorted(key):
+                done = completed_by_area.get(key, 0)
+                if done + used_per_area[key] >= requirements.areas[key].min_cp:
+                    break
+                _try_add(key, row)
+
+        # Pass B -- fill the rest of the budget by gap relevance / CP, across areas.
+        leftover = [(k, r) for k in area_keys for r in _area_sorted(k)
+                    if id(r) not in picked]
+        leftover.sort(key=lambda kr: (_gap_score(kr[1]), _row_cp(kr[1])), reverse=True)
+        for k, row in leftover:
+            _try_add(k, row)
+
+        # Honest feasibility: record any area the catalog couldn't fill to its min.
+        for key in area_keys:
+            short = (requirements.areas[key].min_cp
+                     - completed_by_area.get(key, 0) - used_per_area[key])
+            if short > 0:
+                infeasible_areas[key] = short
+
         by_area = selected
 
     # Render grouped markdown
@@ -185,13 +225,33 @@ def _build_planner_module_table(
 
     lines: list[str] = []
     if remaining_total is not None:
-        lines.append(
-            f"**Plan at most {remaining_total} more coursework CP in total** (you have "
-            f"completed {sum(completed_by_area.values()) if completed_by_area else 0} of "
-            f"{requirements.coursework_cp}). This menu is ALREADY capped to that budget; "
-            f"every module below is eligible; schedule from it, then the Master's Thesis. "
-            f"If the modules don't sum to exactly {remaining_total} CP, plan slightly fewer "
-            f"(being short is fine; over-running is not).")
+        done_so_far = sum(completed_by_area.values()) if completed_by_area else 0
+        if reserve_mode:
+            # From-scratch / unmet-minimums plan: the menu is curated to hit every
+            # area minimum and the coursework total -- so schedule ALL of it. The
+            # old "being short is fine" wording was written for the over-planning
+            # case and wrongly licensed a new student to under-plan (63/90 CP).
+            lines.append(
+                f"**Schedule EVERY module listed below across your semesters.** Together "
+                f"they reach each thematic area's minimum and total close to the "
+                f"{remaining_total} CP of coursework you still need (you have completed "
+                f"{done_so_far} of {requirements.coursework_cp}). Then schedule the "
+                f"Master's Thesis as the final semester. Every area must reach AT LEAST its "
+                f"minimum; never exceed an area's maximum and never run past "
+                f"{remaining_total} total coursework CP. Do NOT drop modules to shorten the "
+                f"plan -- omitting modules leaves an area below its minimum and FAILS "
+                f"validation. Aim for ~30 CP per semester so the coursework fits as few "
+                f"semesters as possible before the thesis.")
+        else:
+            # Near-complete continuing student: minimums already met by completed
+            # credits, so the risk is OVER-planning -- keep the cap.
+            lines.append(
+                f"**Plan at most {remaining_total} more coursework CP in total** (you have "
+                f"completed {done_so_far} of {requirements.coursework_cp}). This menu is "
+                f"ALREADY capped to that budget; every module below is eligible; schedule "
+                f"from it, then the Master's Thesis. If the modules don't sum to exactly "
+                f"{remaining_total} CP, plan slightly fewer (being short is fine; "
+                f"over-running is not).")
         lines.append("")
     for key in area_keys:
         a = requirements.areas[key]
@@ -209,6 +269,12 @@ def _build_planner_module_table(
 
         lines.append(f"### {a.name}")
         lines.append(f"_Budget: {done} CP already completed. {budget}._")
+        if key in infeasible_areas:
+            short = infeasible_areas[key]
+            lines.append(
+                f"> NOTE: this handbook provides only {a.min_cp - short} CP of modules in "
+                f"this area -- {short} CP short of the {a.min_cp} minimum. Schedule all "
+                f"modules listed here; this gap cannot be closed from this handbook.")
         rows = by_area[key]
         if not rows:
             lines.append("_(no unfinished modules available in this area)_")
