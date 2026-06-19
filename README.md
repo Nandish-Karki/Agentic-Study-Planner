@@ -1,118 +1,178 @@
 # Agentic Study Planner
 
+A multi-agent AI application that reads a student's CV, academic transcript, target career path, and a 908-page university module handbook — then generates a validated, semester-wise study plan enforcing real programme rules (credit totals, per-area min/max, prerequisites, thesis placement).
 
-A multi-agent study planner built with **CrewAI**. It reads a student's CV, academic transcript, target career path, and the university module handbook — all real PDFs — and generates a **personalized semester-wise study plan**.
+**Live demo:** https://agentic-study-planner.vercel.app &nbsp;|&nbsp; Free to use &nbsp;|&nbsp; Upload your own PDFs
 
 ---
 
 ## How it works
 
-Five agents follow the workshop's *model-driven agentification* approach: three parallel analyses feeding a two-stage synthesis.
+Five CrewAI agents run in two stages. Three analysts read documents in parallel; two synthesis agents reason over what was extracted.
 
 ```
 profile_analyst   ── reads cv.pdf + transcript.pdf ──┐
-career_analyst    ── reads career.pdf ───────────────┤
-module_curator    ── reads module_handbook.pdf ──────┤
-                                                     ▼
+career_analyst    ── reads career.pdf ────────────────┤
+module_curator    ── reads module_handbook.pdf ───────┤
+                                                      ▼
 gap_analyst         profile vs. career → prioritized skill gaps
-                                                     ▼
-study_planner       semester-wise plan (~30 ECTS/semester,
+                                                      ▼
+study_planner       semester-wise plan (~30 CP/semester,
                     prerequisites respected, gaps closed first)
 ```
 
-Output: `outputs/study_plan.md` — semester tables with credits and per-module justifications, plus the skill-gap analysis.
+After the crew finishes, **deterministic Python** validates and, if needed, rebuilds the plan:
 
-**Grounding design:** the two synthesis agents (`gap_analyst`, `study_planner`) have **no tools** — they can only reason over what the three analyst agents extracted from the real documents. This grounds them in *provenance*: the planner's module vocabulary is limited to the curator's catalog, so it won't pull a module out of thin air.
+- Completed credits per thematic area are parsed from the transcript in code, not inferred by the LLM (LLMs miscounted 81 CP as 46 — arithmetic moved to Python).
+- A deterministic validator re-checks every hard rule (area min/max, credit total, horizon, no retakes, thesis last).
+- If validation fails a backstop assembler rebuilds the plan from a curated module menu — the LLM only contributes per-module narrative; all scheduling arithmetic is in code.
+- The "Credits per area" badge and sidebar table are the validator's output, not the LLM's.
 
-What this does **not** guarantee is *constraint compliance* — being tool-less stops the planner inventing modules, but it does not force it to obey every rule in its context (e.g. a "take at most twice" limit). LLMs still violate such rules; see the known limitation noted in [sample_data/expected_output_example.md](sample_data/expected_output_example.md). The robust fix is a deterministic post-run validator that checks the plan in code, not just in the prompt — see [FUTURE.md](FUTURE.md) item 1.1.
+---
 
-## Workshop quickstart (5 steps, ~10 minutes)
+## Key engineering decisions
 
-Works out of the box with the bundled **synthetic sample data** (`sample_data/` — a
-fictional student, safe to share). Your own PDFs come later and never leave your machine.
+**No RAG.** A regex parser pulls modules from the 908-page handbook PDF in under a second. No embeddings, no hallucination risk on catalogue data.
 
-1. **Clone** the repo and open a terminal in it.
-2. **Get a free LLM token** (pick one):
-   - *GitHub Models (recommended):* GitHub → Settings → Developer settings →
-     [Fine-grained personal access tokens](https://github.com/settings/personal-access-tokens) →
-     Generate new token → under **Account permissions** set **Models: Read-only** → copy the `github_pat_…` token.
-   - *Groq:* create a free key at [console.groq.com/keys](https://console.groq.com/keys), and set `LLM_PROVIDER=groq` in `.env`.
-3. **Run setup** — `.\setup.ps1` (Windows) or `./setup.sh` (macOS/Linux).
-   It creates the venv, installs dependencies, and creates `.env` from the template.
-4. **Paste your token into `.env`**, then run setup again. It finishes with a
-   preflight check — every line should say `[ OK ]`.
-5. **Run it:**
-   ```powershell
-   $env:PYTHONUTF8 = "1"                                   # Windows only
-   .\.venv\Scripts\python -m study_planner.main sample_data
-   ```
-   Watch the five agents work; the plan lands in `outputs/study_plan.md`.
-   Compare with `sample_data/expected_output_example.md` to see what success looks like.
+**LLMs don't count — Python does.** Transcript credit attribution and all credit arithmetic are deterministic. The model only formats the result.
 
-**Then try your own documents:** put `cv.pdf`, `transcript.pdf`, `career.pdf`,
-`module_handbook.pdf` into `data/` (gitignored — they stay local) and run
-`... -m study_planner.main data`.
+**Prompt rules aren't enforcement.** Every hard constraint has a second layer: a separate deterministic validator that the model never sees.
 
-### Troubleshooting
+**Free-tier quotas are a hard ceiling.** Groq gives ~100k tokens/day (~1 full crew run). The app shows an honest "come back later" message instead of spinning or silently failing.
 
-| Symptom | Fix |
-|---|---|
-| Anything fails | Run `.\.venv\Scripts\python -m study_planner.check sample_data` — every failure prints its specific fix |
-| `pip install` fails resolving wheels | You're on Python 3.14 — install Python 3.10–3.13 and delete `.venv`, re-run setup |
-| `401`/`permission` on LLM call | Token missing the **Models: Read-only** scope (GitHub) or expired — regenerate, update `.env` |
-| `UnicodeEncodeError` on Windows | Set `$env:PYTHONUTF8 = "1"` before running |
-| Rate-limit messages mid-run | Normal on free tiers — the run waits and retries automatically. Persistent? Switch `LLM_PROVIDER=groq` (or back) |
-| Garbage module table | Your handbook PDF has no text layer (scanned). Export a text-based PDF |
+**Email verification is built, not wired.** Render's free tier blocks outbound SMTP. The fix (Resend HTTPS) is coded and ready; it's dormant until a domain is attached — deliberate, not missing.
 
-## Use from another project
+---
 
-```python
-from study_planner import plan_studies
+## Local development (Docker Compose — recommended)
 
-result = plan_studies("path/to/data")
-print(result["study_plan"])    # semester-wise plan (Markdown)
-print(result["skill_gaps"])    # prioritized gap analysis
-print(result["report_path"])   # saved outputs/study_plan.md
+Mirrors the production topology: Postgres + Redis + API + worker + frontend + Mailpit for email.
+
+```bash
+# 1. Copy env and set at least one LLM key (see "LLM providers" below)
+cp .env.example .env
+
+# 2. Start everything
+docker compose up --build
+
+# Frontend → http://localhost:5173
+# API docs  → http://localhost:8000/docs
+# Email UI  → http://localhost:8025  (Mailpit — catches all outbound mail locally)
 ```
+
+Scale workers:
+```bash
+docker compose up --scale worker=3
+```
+
+### LLM providers
+
+Set `LLM_PROVIDER` in `.env`:
+
+| Provider | Env var | Notes |
+|---|---|---|
+| `github` (default) | `GITHUB_TOKEN` | GitHub Models — needs `models:read` scope; gpt-4o-mini (fast agents) + gpt-4o (synthesis) |
+| `groq` | `GROQ_API_KEY` | llama-3.3-70b — free tier: ~100k tokens/day |
+| `mixed` | both keys | Groq primary, Gemini Flash fallback (`GEMINI_API_KEY`), GitHub GPT-4o for synthesis — production config |
+
+### Without Docker (Python + venv)
+
+```bash
+# Windows
+.\setup.ps1
+
+# macOS / Linux
+./setup.sh
+```
+
+Both scripts create a venv, install dependencies, and run a preflight check (`python -m study_planner.check`).
+
+For dev mode without Redis, set `JOB_MODE=eager` in `.env` — the plan crew runs inline in the API process (no worker needed).
+
+---
+
+## Running tests
+
+```bash
+# Backend (91 tests, no LLM or external services needed)
+.\.venv\Scripts\python -m pytest
+
+# TypeScript type check
+cd frontend && npx tsc --noEmit
+```
+
+Tests cover: auth + IDOR isolation, GDPR erasure (queries the DB for residual rows after delete), rate-limit 429 enforcement, job failure isolation, deterministic credit accounting, area-budget validation, transcript header matching, quota cooldown, OCR availability.
+
+---
 
 ## Project structure
 
 ```
 agentic-study-planner/
 ├── src/study_planner/
-│   ├── main.py                  # CLI + plan_studies() public API
-│   ├── crew.py                  # @CrewBase crew, LLM provider switch, litellm patches
-│   ├── check.py                 # preflight check: python -m study_planner.check
+│   ├── main.py              # plan_studies() — crew orchestration + deterministic backstop
+│   ├── crew.py              # CrewBase, LLM provider switch, litellm patches
+│   ├── validate.py          # deterministic plan validator + render_area_budget_table
+│   ├── requirements.py      # programme-rules parser (PDF → ProgramRequirements)
+│   ├── inputs.py            # PlanConstraints (semester horizon, per-semester CP targets)
+│   ├── worker.py            # RQ background worker entry point
 │   ├── config/
-│   │   ├── agents.yaml          # 5 agent definitions
-│   │   └── tasks.yaml           # 5 tasks with output constraints + context chains
-│   └── tools/pdf_tools.py       # read_document, search_document, list_input_files
-├── sample_data/                 # synthetic test PDFs (fictional student — committed)
-├── scripts/make_sample_data.py  # regenerates sample_data/
-├── setup.ps1 / setup.sh         # one-command setup + preflight
-├── data/                        # YOUR input PDFs (gitignored — personal documents)
-├── outputs/study_plan.md        # generated plan (gitignored)
-├── docs/                        # lifecycle verification (LaTeX) + distribution plan
-├── FUTURE.md                    # roadmap: validators, metrics, UI
-├── spike_pdf.py                 # standalone PDF-extraction verification
-└── test_llm.py                  # standalone LLM-provider verification
+│   │   ├── agents.yaml      # 5 agent definitions
+│   │   └── tasks.yaml       # 5 task prompts
+│   ├── tools/               # read_document, search_document (PDF tools for agents)
+│   ├── ingest/              # OCR pipeline for scanned/image PDFs
+│   └── api/
+│       ├── app.py           # FastAPI app factory
+│       ├── models.py        # SQLAlchemy models (User, Plan, Job, ConsentRecord, AuditLog)
+│       ├── db.py            # async DB session + create_all
+│       ├── jobs.py          # enqueue() — eager (dev) or RQ (prod)
+│       ├── quota.py         # per-provider daily quota + cooldown
+│       ├── security.py      # JWT auth, password hashing, brute-force protection
+│       ├── email.py         # SMTP / Resend dispatch
+│       └── routes/          # auth, plans, account, legal
+├── frontend/                # React + TypeScript + Tailwind (Vite, deployed to Vercel)
+│   └── src/
+│       ├── pages/           # Login, Register, NewPlan, PlanView, AccountSettings
+│       └── components/      # AreaBudgetBar, ValidationBadge, PlanProgress, etc.
+├── tests/                   # pytest suite (auth, plans, validate, requirements, quota, ...)
+├── sample_data/             # synthetic test PDFs (fictional student — safe to commit)
+├── scripts/                 # make_sample_data.py, make_requirements_pdf.py, run_eval.py
+├── docker-compose.yml       # full local stack
+├── Dockerfile               # single image for api + worker (command differs)
+├── render.yaml              # Render deploy config
+├── pyproject.toml           # pinned deps (crewai==1.14.7, litellm==1.89.0, groq==1.4.0)
+└── .env.example             # all env vars documented with examples
 ```
 
-## LLM configuration
+---
 
-Set `LLM_PROVIDER` in `.env`:
+## Production stack
 
-| Provider | Models | Notes |
+| Layer | Technology | Hosting |
 |---|---|---|
-| `github` (default) | gpt-4o-mini (analysts) / gpt-4o (synthesis) | Needs `GITHUB_TOKEN` with `models:read` |
-| `groq` | llama-3.3-70b-versatile | Free tier: 12k tokens/request, 100k/day |
+| Frontend | React + TypeScript + Tailwind (Vite) | Vercel |
+| Backend API | FastAPI + async SQLAlchemy | Render (Frankfurt, Docker) |
+| Worker | RQ + Redis | Render (same image, `python -m study_planner.worker`) |
+| Database | PostgreSQL 16 | Render Postgres (EU region) |
+| AI | CrewAI 1.14 — Groq llama-3.3-70b (primary), Gemini Flash (fallback), GitHub gpt-4o (synthesis) | — |
+| Email | Resend HTTPS (dormant until domain attached) / Mailpit locally | — |
+| OCR | Tesseract + pdf2image (lazy import — degrades if unavailable) | — |
 
-The resolved provider and models are printed at startup (`[llm config] …`) so a misconfigured `.env` is visible immediately.
+Dependency versions are pinned exactly in `pyproject.toml`. A litellm minor bump silently changed Groq's tool-schema format and broke every plan call — upgrade LLM deps deliberately, then re-run the full test suite and a real plan before promoting.
 
-## Tech stack
+---
 
-CrewAI 1.14 · LiteLLM · pypdf · Python 3.10
+## Compliance notes
+
+- Uploaded PDFs are processed in a temp dir and deleted in `finally` — only the generated plan is persisted.
+- Each user's data is scoped by `owner_id` on every table; every read includes the owner filter. IDOR returns 404, not 403.
+- Account erasure explicitly purges every owned table (not just cascade) — verified by querying for residual rows in tests.
+- Consent version and timestamp are captured at signup. An audit log records generate / view / delete / erase events.
+
+---
 
 ## Author
 
 Nandish Karki — M.Sc. Data & Knowledge Engineering, OvGU Magdeburg
+
+[GitHub](https://github.com/Nandish-Karki) · [LinkedIn](https://www.linkedin.com/in/nandish-karki)
