@@ -300,16 +300,43 @@ def render_minimal_completed_status(completed_cp: int, coursework_cp: int,
         "semesters. Never re-take a completed module.")
 
 
+def _match_area_header(line: str, area_keys) -> str | None:
+    """Return the requirement area key whose words all appear in `line`, else None.
+
+    A transcript groups passed modules under area-section headers, but those headers
+    vary from the official area name: extra words ("... FOR DATA SCIENCE"), "and" vs
+    "&", an appended CP range, case. An EXACT match silently drops a whole area's
+    credits onto the previous header -- observed live: "LEARNING METHODS & MODELS FOR
+    DATA SCIENCE" did not equal the built-in "Learning Methods & Models", so Learning's
+    24 CP folded into Fundamentals (an impossible 40 vs its max 18). So we match by
+    token SUBSET: every word of an area key must be present in the line. The caller
+    excludes module rows first (they carry a BE...date pattern), which is what keeps a
+    module title from being read as a header. When several areas qualify, the most
+    specific (most tokens matched) wins.
+    """
+    tokens = set(_norm(line).split())
+    if not tokens:
+        return None
+    best, best_n = None, 0
+    for key in area_keys:
+        kt = set(key.split())
+        if kt and kt <= tokens and len(kt) > best_n:
+            best, best_n = key, len(kt)
+    return best
+
+
 def parse_completed_by_area(transcript_text: str,
                             requirements: ProgramRequirements) -> dict[str, int]:
     """Sum completed CP per thematic area straight from the transcript.
 
-    The transcript groups passed modules under ALL-CAPS area headers that match
-    the schedule's area names ("FUNDAMENTALS OF DATA SCIENCE", ...). We attribute
-    each passed row's CP to the header above it. This is DETERMINISTIC on purpose:
-    the planner LLM mis-attributes completed credits to the wrong area and double-
-    or under-counts (observed: it read 81 CP as 46). Returns {norm_area: cp} for
-    areas present in `requirements`; empty when the schedule is unknown.
+    The transcript groups passed modules under area headers that follow the
+    schedule's area names ("FUNDAMENTALS OF DATA SCIENCE", ...). We attribute each
+    passed (BE) row's CP to the header above it, matching headers tolerantly (see
+    `_match_area_header` -- real headers carry extra words / "and" vs "&" / CP ranges).
+    DETERMINISTIC on purpose: the planner LLM mis-attributes completed credits to the
+    wrong area and double- or under-counts (observed: it read 81 CP as 46). Returns
+    {norm_area: cp} for areas present in `requirements`; empty when the schedule is
+    unknown.
     """
     if not requirements or not requirements.areas:
         return {}
@@ -320,14 +347,14 @@ def parse_completed_by_area(transcript_text: str,
         line = raw.strip()
         if not line:
             continue
-        if _norm(line) in area_keys:               # an area header line
-            current = _norm(line)
-            continue
-        if current is None:
-            continue
-        m = _TRANSCRIPT_CP_ROW.search(line)
+        m = _TRANSCRIPT_CP_ROW.search(line)        # a passed module row -> count it
         if m:
-            result[current] = result.get(current, 0) + int(m.group(1))
+            if current is not None:
+                result[current] = result.get(current, 0) + int(m.group(1))
+            continue
+        header = _match_area_header(line, area_keys)   # else maybe an area header
+        if header:
+            current = header
     return result
 
 
