@@ -10,10 +10,11 @@ function unwrapFence(md: string | undefined | null): string {
   const s = (md ?? "").trim();
   if (!s.startsWith("```")) return s;
   const lines = s.split("\n");
-  if (lines.length >= 2 && lines[lines.length - 1].trim() === "```") {
-    return lines.slice(1, -1).join("\n").trim();
-  }
-  return s;
+  // Find the first closing fence after the opening line.
+  // Content appended after the fence (e.g. the deterministic budget table) is preserved.
+  const closeIdx = lines.findIndex((l, i) => i > 0 && l.trim() === "```");
+  if (closeIdx === -1) return s;
+  return [...lines.slice(1, closeIdx), ...lines.slice(closeIdx + 1)].join("\n").trim();
 }
 
 const mdComponents = {
