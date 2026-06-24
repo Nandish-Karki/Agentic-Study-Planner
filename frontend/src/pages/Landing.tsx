@@ -143,6 +143,13 @@ export default function Landing() {
             Build my plan
             <ArrowUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition" />
           </Link>
+          <Link
+            to="/try"
+            className="group flex items-center gap-2 border border-white/30 hover:border-white/60 px-5 sm:px-7 py-3 sm:py-4 text-[11px] sm:text-xs tracking-widest uppercase font-semibold hover:bg-white/10 transition"
+          >
+            Try the demo — no signup
+            <ArrowUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition" />
+          </Link>
           <div className="hidden sm:flex items-center gap-3">
             <ShieldCheck className="w-8 h-8 text-white/50" />
             <div className="text-white/60 text-xs tracking-wider uppercase leading-tight">

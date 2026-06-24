@@ -67,6 +67,13 @@ class JobOut(BaseModel):
     finished_at: datetime | None = None
 
 
+class GuestJobOut(BaseModel):
+    """Returned by the public demo endpoint: the job plus a short-lived token the
+    anonymous visitor uses to poll status and fetch the result (no account)."""
+    job: JobOut
+    guest_token: str
+
+
 class StatusOut(BaseModel):
     """Public service status for a global banner (no auth)."""
     quota_available: bool

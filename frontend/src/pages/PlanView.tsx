@@ -1,10 +1,39 @@
-import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, BookOpen, CheckCircle2, AlertTriangle, Download, Printer } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { ArrowLeft, BookOpen, CheckCircle2, AlertTriangle, Download, Printer, GraduationCap, ArrowUpRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api, type Plan } from "../api/client";
 import AppShell from "../components/AppShell";
+
+// Minimal public chrome for the guest demo result (no auth, no account actions).
+function GuestShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="min-h-screen bg-ink">
+      <header className="border-b border-white/10 print:hidden">
+        <div className="max-w-5xl mx-auto px-6 py-5 flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-2">
+            <GraduationCap className="w-6 h-6 text-accent" />
+            <span className="font-podium text-xl tracking-wider uppercase">Study Planner</span>
+          </Link>
+          <Link
+            to="/signup"
+            className="flex items-center gap-1.5 border border-white/30 hover:border-white/60 px-5 py-2 text-xs tracking-widest uppercase hover:bg-white/10 transition"
+          >
+            Get started <ArrowUpRight className="w-4 h-4" />
+          </Link>
+        </div>
+      </header>
+      <main className="max-w-6xl mx-auto px-6 py-10">{children}</main>
+      <footer className="border-t border-white/10 mt-10 print:hidden">
+        <div className="max-w-5xl mx-auto px-6 py-6 flex items-center gap-4 text-xs text-slate-500">
+          <Link to="/legal/privacy" className="hover:text-slate-300">Privacy Policy</Link>
+          <Link to="/legal/tos" className="hover:text-slate-300">Terms &amp; Conditions</Link>
+        </div>
+      </footer>
+    </div>
+  );
+}
 
 function unwrapFence(md: string | undefined | null): string {
   const s = (md ?? "").trim();
@@ -48,16 +77,21 @@ const TAB_LABELS: Record<Tab, string> = {
   catalog: "Module Catalog",
 };
 
-export default function PlanView() {
+export default function PlanView({ guest = false }: { guest?: boolean }) {
   const { id } = useParams<{ id: string }>();
+  const [params] = useSearchParams();
+  const token = params.get("token") ?? "";
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("plan");
 
   useEffect(() => {
     if (!id) return;
-    api.getPlan(id).then(setPlan).catch((e) => setError(e.message));
-  }, [id]);
+    const p = guest ? api.getGuestPlan(id, token) : api.getPlan(id);
+    p.then(setPlan).catch((e) => setError(e.message));
+  }, [id, guest, token]);
+
+  const Shell = guest ? GuestShell : AppShell;
 
   const v = plan?.validation;
   const stats = (v?.stats ?? {}) as Record<string, any>;
@@ -119,13 +153,29 @@ export default function PlanView() {
   };
 
   return (
-    <AppShell>
-      <Link
-        to="/app"
-        className="inline-flex items-center gap-1.5 text-slate-400 hover:text-white mb-6 print:hidden"
-      >
-        <ArrowLeft className="w-4 h-4" /> Back to plans
-      </Link>
+    <Shell>
+      {guest ? (
+        <div className="mb-6 rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
+          <p className="text-sm text-indigo-100">
+            This is a live demo plan generated just now.{" "}
+            <span className="font-semibold text-white">Sign up free</span> to build a
+            plan from your own transcript and save it.
+          </p>
+          <Link
+            to="/signup"
+            className="flex items-center gap-1.5 bg-accent hover:bg-indigo-500 px-4 py-2 rounded-lg text-sm font-semibold transition whitespace-nowrap"
+          >
+            Sign up to save <ArrowUpRight className="w-4 h-4" />
+          </Link>
+        </div>
+      ) : (
+        <Link
+          to="/app"
+          className="inline-flex items-center gap-1.5 text-slate-400 hover:text-white mb-6 print:hidden"
+        >
+          <ArrowLeft className="w-4 h-4" /> Back to plans
+        </Link>
+      )}
 
       {error && <p className="text-red-400">{error}</p>}
       {!plan && !error && <p className="text-slate-500">Loading…</p>}
@@ -336,6 +386,6 @@ export default function PlanView() {
           </div>
         </div>
       )}
-    </AppShell>
+    </Shell>
   );
 }

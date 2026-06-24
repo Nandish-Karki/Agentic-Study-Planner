@@ -24,6 +24,7 @@ os.environ["DEBUG"] = "1"
 os.environ["AUTH_RATE_LIMIT"] = "20"
 os.environ["AUTH_RATE_WINDOW_S"] = "300"
 os.environ["MAX_PLANS_PER_DAY"] = "50"
+os.environ["GUEST_RUNS_PER_DAY"] = "3"  # per-IP cap; the limiter resets per test
 
 import pytest
 from fastapi.testclient import TestClient
@@ -140,6 +141,48 @@ def test_demo_plan_runs(client):
     r = client.post("/plans/demo", headers=_auth(token))
     assert r.status_code == 201, r.text
     assert r.json()["status"] == "succeeded"  # eager + stub planner
+
+
+def test_guest_demo_no_login(client):
+    """An anonymous visitor can run the demo and fetch the result with the returned
+    guest token — no signup, no verification."""
+    r = client.post("/plans/demo/public")
+    assert r.status_code == 201, r.text
+    body = r.json()
+    token = body["guest_token"]
+    job = body["job"]
+    assert job["status"] == "succeeded"  # eager + stub planner
+    # the result is fetchable with the guest token (query param — browser-friendly)
+    got = client.get(f"/plans/public/{job['id']}", params={"token": token})
+    assert got.status_code == 200, got.text
+    assert "Semester 1" in got.json()["study_plan_md"]
+    # status endpoint works too
+    st = client.get(f"/plans/public/{job['id']}/status", params={"token": token})
+    assert st.status_code == 200
+
+
+def test_guest_result_requires_valid_token(client):
+    job = client.post("/plans/demo/public").json()["job"]
+    # no token / wrong token → 404 (no existence disclosure)
+    assert client.get(f"/plans/public/{job['id']}").status_code == 404
+    assert client.get(f"/plans/public/{job['id']}",
+                      params={"token": "garbage"}).status_code == 404
+
+
+def test_guest_run_capped_per_ip(client):
+    # GUEST_RUNS_PER_DAY=3 → the 4th run from the same IP is refused with 429
+    codes = [client.post("/plans/demo/public").status_code for _ in range(4)]
+    assert codes[:3] == [201, 201, 201], codes
+    assert codes[3] == 429, codes
+
+
+def test_guest_job_not_readable_via_authed_route(client):
+    """A signed-in user can't read a guest's job through the authenticated route."""
+    job = client.post("/plans/demo/public").json()["job"]
+    email, _, v = _signup(client)
+    _verify(client, v)
+    token = _login(client, email)
+    assert client.get(f"/plans/{job['id']}", headers=_auth(token)).status_code == 404
 
 
 def test_idor_isolation_404(client):

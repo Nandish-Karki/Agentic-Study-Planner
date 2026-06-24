@@ -35,6 +35,10 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(default=True)
     is_verified: Mapped[bool] = mapped_column(default=False)
+    # An ephemeral account created for the "try the demo without signing up" flow.
+    # Owns exactly one demo job/plan, can't be logged into, and is purged after
+    # settings.guest_retention_hours (cascade removes its job + plan).
+    is_guest: Mapped[bool] = mapped_column(default=False, index=True)
     oauth_provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 

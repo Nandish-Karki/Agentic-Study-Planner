@@ -102,6 +102,11 @@ export interface Plan {
   created_at?: string | null;
 }
 
+export interface GuestJob {
+  job: Job;
+  guest_token: string;
+}
+
 export interface Constraints {
   degree_type: string;
   target_semesters: number;
@@ -197,4 +202,16 @@ export const api = {
 
   // One-click demo on the bundled sample student (no upload needed).
   createDemoPlan: () => request<Job>("/plans/demo", { method: "POST", auth: true }),
+
+  // ── guest demo (no login) ────────────────────────────────────────────────
+  // Run the bundled demo without an account. Returns the job + a short-lived
+  // token used to poll status and fetch the result.
+  createGuestDemoPlan: () =>
+    request<GuestJob>("/plans/demo/public", { method: "POST" }),
+
+  guestPlanStatus: (id: string, token: string) =>
+    request<Job>(`/plans/public/${id}/status?token=${encodeURIComponent(token)}`),
+
+  getGuestPlan: (id: string, token: string) =>
+    request<Plan>(`/plans/public/${id}?token=${encodeURIComponent(token)}`),
 };

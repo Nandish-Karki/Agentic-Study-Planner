@@ -54,6 +54,13 @@ def make_reset_token(user_id: str) -> str:
     return _make_token(user_id, "reset", 60)  # 1h
 
 
+def make_guest_token(guest_user_id: str) -> str:
+    """Short-lived, purpose-scoped token that lets an anonymous visitor fetch the
+    result of the one demo job their guest account owns. Distinct purpose so it can
+    never be used as an access token on the authenticated routes."""
+    return _make_token(guest_user_id, "guest", settings.guest_token_ttl_min)
+
+
 def decode_token(token: str, expected_purpose: str) -> str | None:
     """Return the subject (user_id) if the token is valid for `expected_purpose`."""
     try:

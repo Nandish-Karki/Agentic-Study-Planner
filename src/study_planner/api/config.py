@@ -51,6 +51,14 @@ class Settings:
     # Auth brute-force limit (attempts per window per IP)
     auth_rate_limit: int
     auth_rate_window_s: int
+    # Guest "try the demo without signing up" flow. A guest run is a real crew run
+    # (real inference cost) by an anonymous visitor, so it is capped per IP/day and
+    # shares the global free-tier cooldown. The result is reachable only via a
+    # short-lived signed guest token, and guest accounts are purged after retention.
+    guest_enabled: bool
+    guest_runs_per_day: int       # per IP per rolling 24h
+    guest_token_ttl_min: int      # how long the result link stays valid
+    guest_retention_hours: int    # purge guest accounts (+ their jobs/plans) older than this
     debug: bool
 
     @property
@@ -108,6 +116,10 @@ def load_settings() -> Settings:
         quota_cooldown_hours=int(os.getenv("QUOTA_COOLDOWN_HOURS", "24")),
         auth_rate_limit=int(os.getenv("AUTH_RATE_LIMIT", "10")),
         auth_rate_window_s=int(os.getenv("AUTH_RATE_WINDOW_S", "300")),
+        guest_enabled=os.getenv("GUEST_ENABLED", "1") == "1",
+        guest_runs_per_day=int(os.getenv("GUEST_RUNS_PER_DAY", "1")),
+        guest_token_ttl_min=int(os.getenv("GUEST_TOKEN_TTL_MIN", "120")),
+        guest_retention_hours=int(os.getenv("GUEST_RETENTION_HOURS", "24")),
         debug=debug,
     )
 

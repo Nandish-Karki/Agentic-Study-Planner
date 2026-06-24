@@ -10,11 +10,12 @@ import json
 import os
 import shutil
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import (APIRouter, Depends, File, Form, HTTPException, Request,
                      UploadFile, status)
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from study_planner.api.audit import audit
@@ -26,7 +27,10 @@ from study_planner.api.deps import client_ip, get_verified_user
 from study_planner.api.jobs import enqueue
 from study_planner.api.models import Plan, PlanJob, User
 from study_planner.api.quota import within_quota
-from study_planner.api.schemas import ConstraintsIn, JobOut, PlanOut, ValidationOut
+from study_planner.api.ratelimit import limiter
+from study_planner.api.schemas import (ConstraintsIn, GuestJobOut, JobOut,
+                                       PlanOut, ValidationOut)
+from study_planner.api.security import decode_token, make_guest_token
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -53,9 +57,9 @@ def _job_out(job: PlanJob) -> JobOut:
                   finished_at=job.finished_at)
 
 
-async def _guard_can_create(session: AsyncSession, user: User) -> None:
-    """Reject up front (structured 429) when the shared free tier is paused or the
-    user hit their daily cap — so the UI shows a popup instead of a doomed job."""
+def _guard_cooldown() -> None:
+    """Reject (structured 429) when the shared free tier is paused — applies to
+    authenticated AND guest runs, since both spend the same operator quota."""
     rem = cooldown_remaining()
     if rem > 0:
         hours = max(1, round(rem / 3600))
@@ -67,6 +71,12 @@ async def _guard_can_create(session: AsyncSession, user: User) -> None:
             "message": ("Our free-tier AI quota is used up right now. "
                         f"Please come back in about {hours} hour(s)."),
         })
+
+
+async def _guard_can_create(session: AsyncSession, user: User) -> None:
+    """Reject up front (structured 429) when the shared free tier is paused or the
+    user hit their daily cap — so the UI shows a popup instead of a doomed job."""
+    _guard_cooldown()
     if not await within_quota(session, user.id):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail={
             "reason": "daily_user_limit",
@@ -146,14 +156,9 @@ async def create_plan(
     return await _launch_job(session, user, request, tmp, constraints_in, "create_plan")
 
 
-@router.post("/demo", response_model=JobOut, status_code=status.HTTP_201_CREATED)
-async def create_demo_plan(request: Request,
-                           user: User = Depends(get_verified_user),
-                           session: AsyncSession = Depends(get_session)):
-    """One-click demo on the bundled sample student — so newcomers see a real plan
-    without finding/uploading their own PDFs. Same quota/cooldown rules apply
-    (it's a real crew run = real inference cost)."""
-    await _guard_can_create(session, user)
+def _stage_demo_workspace() -> Path:
+    """Copy the bundled sample student into a fresh temp workspace. 503 if the demo
+    dataset isn't present on this server."""
     src = Path(settings.sample_data_dir)
     required = ["transcript.pdf", "module_handbook.pdf", "career.pdf", "cv.pdf"]
     if not src.exists() or not all((src / f).exists() for f in required):
@@ -163,7 +168,91 @@ async def create_demo_plan(request: Request,
     for f in required + ["requirements.pdf"]:  # requirements optional in the sample
         if (src / f).exists():
             shutil.copyfile(src / f, tmp / f)
+    return tmp
+
+
+@router.post("/demo", response_model=JobOut, status_code=status.HTTP_201_CREATED)
+async def create_demo_plan(request: Request,
+                           user: User = Depends(get_verified_user),
+                           session: AsyncSession = Depends(get_session)):
+    """One-click demo on the bundled sample student — so newcomers see a real plan
+    without finding/uploading their own PDFs. Same quota/cooldown rules apply
+    (it's a real crew run = real inference cost)."""
+    await _guard_can_create(session, user)
+    tmp = _stage_demo_workspace()
     return await _launch_job(session, user, request, tmp, ConstraintsIn(), "create_demo")
+
+
+# ─── guest demo (no login) ───────────────────────────────────────────────────
+# "Many visitors won't sign up before seeing the planner work." A guest can run
+# the bundled demo once, get a real validated plan, and is nudged to sign up to
+# save it. A guest run is a real crew run (real inference cost), so it is capped
+# per IP/day and shares the global free-tier cooldown. The result is reachable
+# only via a short-lived guest token; the guest account (and its job/plan) is
+# purged after settings.guest_retention_hours.
+
+async def _purge_stale_guests(session: AsyncSession) -> None:
+    """Best-effort cleanup so anonymous demo runs don't accumulate forever. Deleting
+    the guest User cascades to its PlanJob + Plan."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=settings.guest_retention_hours)
+    await session.execute(
+        sa_delete(User).where(User.is_guest.is_(True), User.created_at < cutoff))
+    await session.commit()
+
+
+async def _guest_job_from_token(session: AsyncSession, job_id: str,
+                                token: str | None) -> PlanJob:
+    """Resolve the guest user from the token and assert it owns this job. 404 on any
+    mismatch (no existence disclosure), same as the authenticated owner check."""
+    guest_id = decode_token(token or "", "guest")
+    if not guest_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Plan not found")
+    job = await session.get(PlanJob, job_id)
+    if job is None or job.user_id != guest_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Plan not found")
+    return job
+
+
+@router.post("/demo/public", response_model=GuestJobOut,
+             status_code=status.HTTP_201_CREATED)
+async def create_guest_demo_plan(request: Request,
+                                 session: AsyncSession = Depends(get_session)):
+    """Run the bundled demo for an anonymous visitor (no account). Returns the job
+    plus a short-lived token to poll + view the result."""
+    if not settings.guest_enabled:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    ip = client_ip(request)
+    if not limiter.allow(f"guest:{ip}", settings.guest_runs_per_day, 24 * 3600):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail={
+            "reason": "daily_user_limit",
+            "message": ("You've used your free demo for today. "
+                        "Sign up for a free account to create more plans."),
+        })
+    _guard_cooldown()
+    await _purge_stale_guests(session)
+    tmp = _stage_demo_workspace()
+
+    guest = User(email=f"guest+{os.urandom(8).hex()}@guest.local",
+                 hashed_password="!unusable", is_active=True,
+                 is_verified=False, is_guest=True)
+    session.add(guest)
+    await session.flush()  # assign guest.id before the job references it
+    job = await _launch_job(session, guest, request, tmp, ConstraintsIn(),
+                            "create_guest_demo")
+    return GuestJobOut(job=job, guest_token=make_guest_token(guest.id))
+
+
+@router.get("/public/{job_id}/status", response_model=JobOut)
+async def guest_plan_status(job_id: str, token: str | None = None,
+                            session: AsyncSession = Depends(get_session)):
+    return _job_out(await _guest_job_from_token(session, job_id, token))
+
+
+@router.get("/public/{job_id}", response_model=PlanOut)
+async def guest_get_plan(job_id: str, token: str | None = None,
+                         session: AsyncSession = Depends(get_session)):
+    job = await _guest_job_from_token(session, job_id, token)
+    return await _plan_out_for(session, job)
 
 
 @router.get("", response_model=list[JobOut])
@@ -189,11 +278,8 @@ async def plan_status(job_id: str, user: User = Depends(get_verified_user),
     return _job_out(await _owned_job(session, job_id, user))
 
 
-@router.get("/{job_id}", response_model=PlanOut)
-async def get_plan(job_id: str, request: Request,
-                   user: User = Depends(get_verified_user),
-                   session: AsyncSession = Depends(get_session)):
-    job = await _owned_job(session, job_id, user)
+async def _plan_out_for(session: AsyncSession, job: PlanJob) -> PlanOut:
+    """Assemble the PlanOut payload for a job (shared by the authed + guest reads)."""
     out = PlanOut(job_id=job.id, status=job.status)
     if job.status == "succeeded":
         plan = (await session.execute(
@@ -208,6 +294,16 @@ async def get_plan(job_id: str, request: Request,
             out.validation = ValidationOut(
                 ok=v.get("ok", True), errors=v.get("errors", []),
                 warnings=v.get("warnings", []), stats=v.get("stats", {}))
+    return out
+
+
+@router.get("/{job_id}", response_model=PlanOut)
+async def get_plan(job_id: str, request: Request,
+                   user: User = Depends(get_verified_user),
+                   session: AsyncSession = Depends(get_session)):
+    job = await _owned_job(session, job_id, user)
+    out = await _plan_out_for(session, job)
+    if job.status == "succeeded":
         await audit(session, user_id=user.id, action="view_plan",
                     target_type="plan", target_id=job.id, ip=client_ip(request))
         await session.commit()

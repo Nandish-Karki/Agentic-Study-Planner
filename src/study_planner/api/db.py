@@ -35,6 +35,10 @@ _ADDITIVE_COLUMNS = {
         ("failure_reason", "VARCHAR(40)"),
         ("retry_at", "TIMESTAMP WITH TIME ZONE"),
     ],
+    "users": [
+        # Guest-demo flow: ephemeral accounts for "try without signing up".
+        ("is_guest", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ],
 }
 
 
