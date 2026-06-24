@@ -10,9 +10,13 @@ function unwrapFence(md: string | undefined | null): string {
   const s = (md ?? "").trim();
   if (!s.startsWith("```")) return s;
   const lines = s.split("\n");
-  // Find the first closing fence after the opening line.
-  // Content appended after the fence (e.g. the deterministic budget table) is preserved.
-  const closeIdx = lines.findIndex((l, i) => i > 0 && l.trim() === "```");
+  // Scan from the end to find the LAST closing fence — the outer one — so that inner
+  // code blocks (which also end with ```) are not mistakenly treated as the close.
+  // Content appended after the outer fence (e.g. the budget table) is preserved.
+  let closeIdx = -1;
+  for (let i = lines.length - 1; i > 0; i--) {
+    if (lines[i].trim() === "```") { closeIdx = i; break; }
+  }
   if (closeIdx === -1) return s;
   return [...lines.slice(1, closeIdx), ...lines.slice(closeIdx + 1)].join("\n").trim();
 }
