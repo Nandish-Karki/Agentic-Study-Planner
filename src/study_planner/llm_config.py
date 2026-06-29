@@ -132,6 +132,18 @@ def _is_transient(err: str) -> bool:
     ))
 
 
+def _is_bad_tool_format(err: str) -> bool:
+    """True when Groq rejects a malformed tool call emitted by the model.
+
+    llama-3.3-70b occasionally reverts to its pre-training function-call format
+    (<function=name {args}>) instead of proper JSON tool calls. Groq parses the
+    whole string as the tool name, finds no match in request.tools, and returns
+    'tool_use_failed'. This is probabilistic model behaviour — retrying the same
+    request usually produces the correct format."""
+    e = err.lower()
+    return "tool_use_failed" in e or "tool call validation failed" in e
+
+
 def make_tool_schemas_strict(tools):
     """Set ``additionalProperties: false`` on every object in each tool's
     parameter schema.
@@ -203,8 +215,13 @@ def ensure_litellm_patched() -> None:
                 err = str(e)
                 rate, transient = _is_rate_limit(err), _is_transient(err)
                 overflow = _is_context_overflow(err)
-                if not (rate or transient or overflow):
+                bad_tool = _is_bad_tool_format(err)
+                if not (rate or transient or overflow or bad_tool):
                     raise
+                if bad_tool:
+                    print(f"[bad tool format] model emitted malformed tool call, retrying (attempt {attempt+1}/6)...")
+                    last_exc = e
+                    continue  # immediate retry — no sleep, no provider switch
                 last_exc = e
                 model = str(kwargs.get("model", ""))
                 fallback_model = os.getenv("LLM_FALLBACK_MODEL", _FALLBACK_MODEL)
