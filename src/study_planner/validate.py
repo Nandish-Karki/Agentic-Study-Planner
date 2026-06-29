@@ -425,15 +425,21 @@ def validate_plan(plan_md: str, catalog_md: str, profile_md: str = "",
                 f"{sem.label}: {total_for_band} CP exceeds the {CP_MAX} CP per-semester maximum"))
 
         for m in sem.modules:
+            _nm = _norm(m.name)
+            _is_thesis = "thesis" in _nm or "masterarbeit" in _nm or "bachelorarbeit" in _nm
             # 1. grounding: planned module must be on the eligible menu (offered
-            # menu when provided, else the full catalog).
-            ematch, escore = _best_match(m.name, eligible_names) if eligible_names else (None, 0)
-            if eligible_names and escore < NAME_MATCH_THRESHOLD:
-                where = "offered module menu" if offered_md else "module catalog"
-                rep.findings.append(Finding("ERROR", "grounding",
-                    f"'{m.name}' ({sem.label}) is not on the {where} "
-                    f"(closest: '{ematch}' @ {escore:.2f}) — not eligible / possible hallucination"))
-                continue
+            # menu when provided, else the full catalog). Thesis is exempt — it is
+            # never listed in the module handbook so a grounding failure would be a
+            # false positive, not a hallucination.
+            ematch, escore = (None, 0.0)
+            if eligible_names and not _is_thesis:
+                ematch, escore = _best_match(m.name, eligible_names)
+                if escore < NAME_MATCH_THRESHOLD:
+                    where = "offered module menu" if offered_md else "module catalog"
+                    rep.findings.append(Finding("ERROR", "grounding",
+                        f"'{m.name}' ({sem.label}) is not on the {where} "
+                        f"(closest: '{ematch}' @ {escore:.2f}) — not eligible / possible hallucination"))
+                    continue
 
             # Resolve the canonical catalog entry (CP/area/take-limit) from the FULL
             # catalog, even when grounding was against the narrower offered menu.
