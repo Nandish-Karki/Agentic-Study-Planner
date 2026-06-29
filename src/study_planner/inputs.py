@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 # Sane upper bound on a single semester's CP load. A request to finish in N
 # semesters that would force more than this per semester is flagged infeasible.
-MAX_SANE_LOAD = 36
+MAX_SANE_LOAD = 30
 
 # Default remaining COURSEWORK credit totals by degree (thesis excluded), used by
 # the feasibility check when the handbook doesn't state an explicit total. German

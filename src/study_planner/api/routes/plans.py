@@ -158,9 +158,11 @@ async def create_plan(
 
 def _stage_demo_workspace() -> Path:
     """Copy the bundled sample student into a fresh temp workspace. 503 if the demo
-    dataset isn't present on this server."""
+    dataset isn't present on this server. Always uses a blank 0-CP transcript so the
+    demo plans a full degree from scratch — visitors see the complete product output,
+    not a partial plan based on a sample student's completed modules."""
     src = Path(settings.sample_data_dir)
-    required = ["transcript.pdf", "module_handbook.pdf", "career.pdf", "cv.pdf"]
+    required = ["module_handbook.pdf", "career.pdf", "cv.pdf"]
     if not src.exists() or not all((src / f).exists() for f in required):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             "The demo dataset isn't available on this server.")
@@ -168,6 +170,8 @@ def _stage_demo_workspace() -> Path:
     for f in required + ["requirements.pdf"]:  # requirements optional in the sample
         if (src / f).exists():
             shutil.copyfile(src / f, tmp / f)
+    from study_planner.ingest.blank_transcript import synthesize_blank_transcript
+    synthesize_blank_transcript(tmp / "transcript.pdf")
     return tmp
 
 

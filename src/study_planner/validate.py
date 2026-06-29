@@ -31,7 +31,7 @@ from difflib import SequenceMatcher
 
 # Per-semester ECTS sanity band. Outside this is a soft WARNING, not an ERROR —
 # a light final semester or a thesis-only semester is legitimate.
-CP_MIN, CP_MAX = 12, 36
+CP_MIN, CP_MAX = 3, 30
 # How close two module names must be (0..1) to count as "the same module".
 NAME_MATCH_THRESHOLD = 0.86
 
@@ -417,10 +417,12 @@ def validate_plan(plan_md: str, catalog_md: str, profile_md: str = "",
                 f"{sem.label}: module CP sum is {actual} but stated total is "
                 f"{sem.stated_total}"))
         total_for_band = sem.stated_total if sem.stated_total is not None else actual
-        if total_for_band and not (CP_MIN <= total_for_band <= CP_MAX):
+        if total_for_band == 0:
             rep.findings.append(Finding("WARNING", "cp-load",
-                f"{sem.label}: {total_for_band} CP is outside the "
-                f"{CP_MIN}-{CP_MAX} band"))
+                f"{sem.label}: no subjects scheduled — at least one subject required"))
+        elif total_for_band > CP_MAX:
+            rep.findings.append(Finding("WARNING", "cp-load",
+                f"{sem.label}: {total_for_band} CP exceeds the {CP_MAX} CP per-semester maximum"))
 
         for m in sem.modules:
             # 1. grounding: planned module must be on the eligible menu (offered
