@@ -426,8 +426,57 @@ def _extract_uncovered_section(plan_md: str) -> str:
     return ""
 
 
+_BACKSTOP_THESIS_TOPICS: dict[str, list[tuple[str, str]]] = {
+    "data_engineer": [
+        ("Scalable Data Lake Architectures for Real-Time Analytics",
+         "Design and evaluate a medallion-architecture data lake (Bronze/Silver/Gold)"
+         " on open-source tools (Apache Iceberg + Spark + Flink), measuring"
+         " query latency and pipeline throughput on a public dataset."),
+        ("Automated Data Quality Monitoring in Streaming Pipelines",
+         "Propose and implement a continuous data-quality framework that detects"
+         " schema drift, null rates, and statistical anomalies in Kafka streams"
+         " and surfaces alerts without halting the pipeline."),
+        ("Benchmark of Cloud-Native ETL Frameworks for Large-Scale Graph Data",
+         "Compare dbt, Spark SQL, and a graph-native ETL approach (e.g. NeoDash +"
+         " Cypher) for transforming raw event logs into a knowledge graph,"
+         " reporting on developer experience, cost, and latency."),
+    ],
+    "ml_engineer": [
+        ("Knowledge Graph Completion with Large Language Models",
+         "Investigate whether LLM embeddings can reliably fill missing triples"
+         " in enterprise knowledge graphs, benchmarking against classical link"
+         " prediction baselines on a public KG dataset."),
+        ("Federated Learning for Privacy-Preserving Clinical Data Analysis",
+         "Design and evaluate a federated learning pipeline that trains predictive"
+         " models across hospital data silos without centralising patient records,"
+         " measuring accuracy-privacy trade-offs under differential privacy."),
+        ("Explainable Anomaly Detection in Time-Series Streams",
+         "Combine unsupervised deep learning with post-hoc explainability methods"
+         " (SHAP / LIME) to flag and explain anomalies in real-time IoT or"
+         " financial data, evaluated on a public benchmark."),
+    ],
+    "data_analyst": [
+        ("Causal Inference for A/B Test Evaluation in E-Commerce Funnels",
+         "Apply causal ML methods (double ML, synthetic control) to e-commerce"
+         " clickstream data to separate treatment effects from confounders and"
+         " compare conclusions with naive A/B significance tests."),
+        ("Explainable Churn Prediction with Graph-Enriched Features",
+         "Enrich tabular customer data with graph-derived features (from a"
+         " customer-product interaction graph) and compare interpretable models"
+         " (logistic regression + SHAP) against black-box baselines on churn"
+         " prediction accuracy and stakeholder trust."),
+        ("Automated Narrative Generation from Business Intelligence Dashboards",
+         "Build a pipeline that reads KPI time-series from a BI tool and generates"
+         " plain-language summaries using an LLM, evaluated on accuracy,"
+         " readability, and whether analysts trust and act on the narratives."),
+    ],
+}
+_BACKSTOP_THESIS_TOPICS["default"] = _BACKSTOP_THESIS_TOPICS["ml_engineer"]
+
+
 def _assemble_coursework_plan(menu: dict, requirements, constraints,
-                              current_semester: str, llm_plan_md: str) -> str:
+                              current_semester: str, llm_plan_md: str,
+                              demo_role: str | None = None) -> str:
     """Deterministically build the plan body from the curated menu so every area
     reaches its minimum, the coursework total is covered, and the horizon fits.
 
@@ -526,35 +575,29 @@ def _assemble_coursework_plan(menu: dict, requirements, constraints,
     if uncovered:
         out.append(uncovered)
 
-    # Thesis topic suggestions — generic DKE-relevant topics when the plan is
-    # assembled deterministically (demo / backstop rebuild), since the career analyst
-    # may not have run or may have analysed a sample career rather than the student's.
+    # Role-aware thesis topic suggestions for the deterministic backstop rebuild.
+    # The LLM planner normally writes these from the career analysis; when the
+    # backstop fires it bypasses the LLM, so we pick from a role-keyed list so
+    # the topics still reflect the visitor's chosen career path.
+    _topics = _BACKSTOP_THESIS_TOPICS.get(demo_role or "") \
+        or _BACKSTOP_THESIS_TOPICS["default"]
     out.append("## Suggested Thesis Topics")
     out.append(
-        "Based on the DKE programme's core areas, here are three thesis directions "
-        "to explore with your supervisor:\n")
-    out.append(
-        "1. **Knowledge Graph Completion with Large Language Models** — "
-        "investigate whether LLM embeddings can reliably fill missing triples in "
-        "enterprise knowledge graphs, with a benchmark on a real-world dataset.")
-    out.append(
-        "2. **Federated Learning for Privacy-Preserving Clinical Data Analysis** — "
-        "design and evaluate a federated learning pipeline that trains predictive "
-        "models across hospital data without centralising patient records.")
-    out.append(
-        "3. **Explainable Anomaly Detection in Time-Series Streams** — "
-        "combine unsupervised deep learning with post-hoc explainability methods "
-        "to flag and explain anomalies in real-time IoT or financial data.")
+        "Based on your career goals and the DKE programme's core areas, here are "
+        "three thesis directions to explore with your supervisor:\n")
+    for i, (title, desc) in enumerate(_topics, start=1):
+        out.append(f"{i}. **{title}** — {desc}")
     out.append(
         "\n*These are starting points. Discuss with your supervisor and align with "
-        "your career goals and the modules you will study.*")
+        "the modules you will study.*")
 
     return "\n".join(out)
 
 
 def _ensure_area_minimums(study_plan: str, validation, menu: dict | None,
                           requirements, constraints,
-                          current_semester: str) -> tuple[str, bool]:
+                          current_semester: str,
+                          demo_role: str | None = None) -> tuple[str, bool]:
     """Deterministic backstop: when the LLM plan still FAILS validation, or when it
     is short on total coursework CP (a WARNING the LLM often ignores), rebuild the
     coursework body from the curated menu so area minimums, the coursework total and
@@ -568,7 +611,8 @@ def _ensure_area_minimums(study_plan: str, validation, menu: dict | None,
     if not menu or menu.get("remaining_total") is None:
         return study_plan, False  # no curated menu (legacy flow) -- leave as-is
     rebuilt = _assemble_coursework_plan(
-        menu, requirements, constraints, current_semester, study_plan)
+        menu, requirements, constraints, current_semester, study_plan,
+        demo_role=demo_role)
     return rebuilt, True
 
 
@@ -612,6 +656,16 @@ def plan_studies(data_dir: str = "data", save_report: bool = True,
     data = pathlib.Path(data_dir).resolve()
     if not data.exists():
         raise FileNotFoundError(f"Input folder not found: {data}")
+
+    # Optional role hint written by the demo workspace (role.txt). Only present
+    # for demo runs; regular user uploads never write this file. Used exclusively
+    # to select role-appropriate fallback thesis topics in the deterministic
+    # backstop (which bypasses the LLM career analysis entirely).
+    _role_file = data / "role.txt"
+    demo_role: str | None = (
+        _role_file.read_text(encoding="ascii").strip() or None
+        if _role_file.exists() else None
+    )
 
     # Optional study & examination schedule → authoritative CP rules (min/max per
     # area, thesis, total, required team projects). Empty if not uploaded.
@@ -863,7 +917,8 @@ def plan_studies(data_dir: str = "data", save_report: bool = True,
         # Then ensure a thesis is present, and re-validate once (no LLM cost).
         if validate and validation is not None:
             study_plan, _rebuilt = _ensure_area_minimums(
-                study_plan, validation, menu, requirements, constraints, current_semester)
+                study_plan, validation, menu, requirements, constraints, current_semester,
+                demo_role=demo_role)
             study_plan, _appended = _ensure_thesis(study_plan, requirements)
             if _rebuilt or _appended:
                 validation = validate_plan(study_plan, module_catalog, profile, constraints,

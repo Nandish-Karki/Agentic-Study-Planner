@@ -201,13 +201,22 @@ export const api = {
   },
 
   // One-click demo on the bundled sample student (no upload needed).
-  createDemoPlan: () => request<Job>("/plans/demo", { method: "POST", auth: true }),
+  createDemoPlan: (role = "data_engineer") =>
+    request<Job>("/plans/demo", {
+      method: "POST", auth: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    }),
 
   // ── guest demo (no login) ────────────────────────────────────────────────
   // Run the bundled demo without an account. Returns the job + a short-lived
   // token used to poll status and fetch the result.
-  createGuestDemoPlan: () =>
-    request<GuestJob>("/plans/demo/public", { method: "POST" }),
+  createGuestDemoPlan: (role = "data_engineer") =>
+    request<GuestJob>("/plans/demo/public", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    }),
 
   guestPlanStatus: (id: string, token: string) =>
     request<Job>(`/plans/public/${id}/status?token=${encodeURIComponent(token)}`),

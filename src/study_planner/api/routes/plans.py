@@ -28,7 +28,7 @@ from study_planner.api.jobs import enqueue
 from study_planner.api.models import Plan, PlanJob, User
 from study_planner.api.quota import within_quota
 from study_planner.api.ratelimit import limiter
-from study_planner.api.schemas import (ConstraintsIn, GuestJobOut, JobOut,
+from study_planner.api.schemas import (ConstraintsIn, DemoIn, GuestJobOut, JobOut,
                                        PlanOut, ValidationOut)
 from study_planner.api.security import decode_token, make_guest_token
 
@@ -156,7 +156,7 @@ async def create_plan(
     return await _launch_job(session, user, request, tmp, constraints_in, "create_plan")
 
 
-def _stage_demo_workspace() -> Path:
+def _stage_demo_workspace(role: str | None = None) -> Path:
     """Copy the bundled sample student into a fresh temp workspace. 503 if the demo
     dataset isn't present on this server. Always uses a blank 0-CP transcript so the
     demo plans a full degree from scratch — visitors see the complete product output,
@@ -173,20 +173,25 @@ def _stage_demo_workspace() -> Path:
     from study_planner.ingest.blank_transcript import synthesize_blank_transcript
     from study_planner.ingest.demo_career import synthesize_demo_career
     synthesize_blank_transcript(tmp / "transcript.pdf")
-    synthesize_demo_career(tmp / "career.pdf")
-    synthesize_demo_career(tmp / "cv.pdf")
+    synthesize_demo_career(tmp / "career.pdf", role=role)
+    synthesize_demo_career(tmp / "cv.pdf", role=role)
+    # role.txt carries the visitor's choice into plan_studies for the deterministic
+    # backstop's fallback thesis topics (which bypass the LLM career analysis).
+    if role:
+        (tmp / "role.txt").write_text(role, encoding="ascii")
     return tmp
 
 
 @router.post("/demo", response_model=JobOut, status_code=status.HTTP_201_CREATED)
 async def create_demo_plan(request: Request,
+                           body: DemoIn = DemoIn(),
                            user: User = Depends(get_verified_user),
                            session: AsyncSession = Depends(get_session)):
     """One-click demo on the bundled sample student — so newcomers see a real plan
     without finding/uploading their own PDFs. Same quota/cooldown rules apply
     (it's a real crew run = real inference cost)."""
     await _guard_can_create(session, user)
-    tmp = _stage_demo_workspace()
+    tmp = _stage_demo_workspace(role=body.validated_role())
     return await _launch_job(session, user, request, tmp, ConstraintsIn(), "create_demo")
 
 
@@ -223,6 +228,7 @@ async def _guest_job_from_token(session: AsyncSession, job_id: str,
 @router.post("/demo/public", response_model=GuestJobOut,
              status_code=status.HTTP_201_CREATED)
 async def create_guest_demo_plan(request: Request,
+                                 body: DemoIn = DemoIn(),
                                  session: AsyncSession = Depends(get_session)):
     """Run the bundled demo for an anonymous visitor (no account). Returns the job
     plus a short-lived token to poll + view the result."""
@@ -237,7 +243,7 @@ async def create_guest_demo_plan(request: Request,
         })
     _guard_cooldown()
     await _purge_stale_guests(session)
-    tmp = _stage_demo_workspace()
+    tmp = _stage_demo_workspace(role=body.validated_role())
 
     guest = User(email=f"guest+{os.urandom(8).hex()}@guest.local",
                  hashed_password="!unusable", is_active=True,

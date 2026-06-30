@@ -3,6 +3,14 @@ import { Link, useNavigate } from "react-router-dom";
 import { GraduationCap, Sparkles, ArrowUpRight, AlertTriangle } from "lucide-react";
 import { api, ApiError, type Job } from "../api/client";
 
+const ROLES = [
+  { id: "data_engineer", label: "Data Engineer",   icon: "⚙️" },
+  { id: "ml_engineer",   label: "AI / ML Engineer", icon: "🤖" },
+  { id: "data_analyst",  label: "Data Analyst",     icon: "📊" },
+] as const;
+
+type PresetRoleId = (typeof ROLES)[number]["id"];
+
 const PHASES = ["Reading the documents", "Planning the semesters", "Validating the plan"];
 
 function phaseIndex(phase: string): number {
@@ -48,6 +56,8 @@ function ProgressSteps({ phase }: { phase: string }) {
 
 export default function TryDemo() {
   const nav = useNavigate();
+  const [preset, setPreset] = useState<PresetRoleId | "other">("data_engineer");
+  const [customRole, setCustomRole] = useState("");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState("");
   const [status, setStatus] = useState("");
@@ -93,7 +103,8 @@ export default function TryDemo() {
     setBusy(true);
     setStatus("Starting the demo…");
     try {
-      const { job, guest_token } = await api.createGuestDemoPlan();
+      const roleValue = preset === "other" ? customRole.trim() || "other" : preset;
+      const { job, guest_token } = await api.createGuestDemoPlan(roleValue);
       if (job.status === "succeeded")
         nav(`/try/plan/${job.id}?token=${encodeURIComponent(guest_token)}`);
       else if (job.status === "failed") onFailed(job);
@@ -138,6 +149,53 @@ export default function TryDemo() {
         {error && <p className="mt-6 text-red-400">{error}</p>}
 
         <div className="mt-8">
+          <p className="text-sm text-slate-400 mb-3 font-medium">
+            What's your target career role?
+          </p>
+          <div className="flex flex-wrap gap-3 mb-3">
+            {ROLES.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => setPreset(r.id)}
+                disabled={busy}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition disabled:opacity-40 ${
+                  preset === r.id
+                    ? "border-accent bg-accent/20 text-white"
+                    : "border-white/20 bg-white/[0.03] text-slate-300 hover:border-white/40 hover:bg-white/10"
+                }`}
+              >
+                <span>{r.icon}</span>
+                {r.label}
+              </button>
+            ))}
+            <button
+              onClick={() => setPreset("other")}
+              disabled={busy}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition disabled:opacity-40 ${
+                preset === "other"
+                  ? "border-accent bg-accent/20 text-white"
+                  : "border-white/20 bg-white/[0.03] text-slate-300 hover:border-white/40 hover:bg-white/10"
+              }`}
+            >
+              <span>✏️</span>
+              Other
+            </button>
+          </div>
+
+          {preset === "other" && (
+            <input
+              type="text"
+              value={customRole}
+              onChange={(e) => setCustomRole(e.target.value.slice(0, 60))}
+              placeholder="e.g. Backend Engineer, Product Analyst…"
+              disabled={busy}
+              autoFocus
+              className="w-full mb-5 px-4 py-2.5 rounded-lg border border-white/20 bg-white/[0.04] text-white placeholder-slate-500 text-sm focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-40"
+            />
+          )}
+
+          {preset !== "other" && <div className="mb-5" />}
+
           <button
             onClick={run}
             disabled={busy}

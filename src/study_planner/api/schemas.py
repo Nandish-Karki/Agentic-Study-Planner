@@ -47,6 +47,34 @@ class UserOut(BaseModel):
 
 # ─── plans ─────────────────────────────────────────────────────────────────────
 
+PRESET_ROLES = {"data_engineer", "ml_engineer", "data_analyst"}
+
+
+class DemoIn(BaseModel):
+    """Optional parameters for the one-click and guest demo endpoints."""
+    role: str = Field(
+        default="data_engineer",
+        min_length=0,
+        max_length=60,
+        description="Target career role for the demo plan. Preset keys "
+                    "(data_engineer, ml_engineer, data_analyst) get a tailored "
+                    "career PDF; any other short string gets a generic template "
+                    "with the role name substituted in.",
+    )
+
+    def validated_role(self) -> str:
+        """Return a safe, stripped role string. Preset keys pass through as-is;
+        custom strings are stripped and lowercased. Empty falls back to default."""
+        stripped = self.role.strip()
+        if not stripped:
+            return "data_engineer"
+        if stripped in PRESET_ROLES:
+            return stripped
+        # Custom role: return as-is (already length-capped by Field max_length=60).
+        # demo_career.py will use a generic template with this string inserted.
+        return stripped
+
+
 class ConstraintsIn(BaseModel):
     degree_type: str = "master"
     target_semesters: int = Field(default=4, ge=1, le=12)

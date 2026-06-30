@@ -151,7 +151,7 @@ HANDBOOK_MODULES = [
     ["Advanced Databases", "6", "Winter", "SQL, query optimization, indexing, transactions", "none", "Fundamentals of Data Science"],
     ["Machine Learning Foundations", "6", "Winter", "Supervised learning, model evaluation, scikit-learn", "none", "Fundamentals of Data Science"],
     ["Distributed Systems", "6", "Winter", "Replication, consensus, fault tolerance", "none", "Fundamentals of Data Science"],
-    ["Cloud Computing", "6", "Winter", "IaaS/PaaS, virtualization, containers, Docker", "none", "Fundamentals of Data Science"],
+    ["Cloud Computing", "6", "Winter", "IaaS/PaaS, virtualization, containers, Docker", "none", "Data Processing for Data Science"],
     ["Data Mining I", "6", "Summer", "Clustering, association rules, anomaly detection", "none", "Learning Methods & Models"],
     ["Information Retrieval", "6", "Winter", "Search engines, ranking, text indexing", "none", "Learning Methods & Models"],
     ["Advanced Machine Learning", "6", "Summer", "Deep learning, ensembles, hyperparameter tuning", "Machine Learning Foundations", "Learning Methods & Models"],

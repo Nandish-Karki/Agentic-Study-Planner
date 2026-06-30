@@ -143,7 +143,7 @@ export default function PlanView({ guest = false }: { guest?: boolean }) {
   const tabs: Tab[] = [
     "plan",
     ...(plan?.profile_md ? (["profile"] as Tab[]) : []),
-    ...(plan?.module_catalog_md ? (["catalog"] as Tab[]) : []),
+    ...(!guest && plan?.module_catalog_md ? (["catalog"] as Tab[]) : []),
   ];
 
   const tabContent: Record<Tab, string> = {
@@ -249,7 +249,7 @@ export default function PlanView({ guest = false }: { guest?: boolean }) {
                 <span className="font-semibold">
                   {v.ok
                     ? "Validated — every hard rule checks out"
-                    : `${v.errors.length} issue${v.errors.length === 1 ? "" : "s"} the planner got wrong`}
+                    : `${v.errors.length} planning assumption${v.errors.length === 1 ? "" : "s"} that need${v.errors.length === 1 ? "s" : ""} revisiting`}
                 </span>
               </div>
               {(v.errors.length > 0 || v.warnings.length > 0) && (
