@@ -526,18 +526,44 @@ def _assemble_coursework_plan(menu: dict, requirements, constraints,
     if uncovered:
         out.append(uncovered)
 
+    # Thesis topic suggestions — generic DKE-relevant topics when the plan is
+    # assembled deterministically (demo / backstop rebuild), since the career analyst
+    # may not have run or may have analysed a sample career rather than the student's.
+    out.append("## Suggested Thesis Topics")
+    out.append(
+        "Based on the DKE programme's core areas, here are three thesis directions "
+        "to explore with your supervisor:\n")
+    out.append(
+        "1. **Knowledge Graph Completion with Large Language Models** — "
+        "investigate whether LLM embeddings can reliably fill missing triples in "
+        "enterprise knowledge graphs, with a benchmark on a real-world dataset.")
+    out.append(
+        "2. **Federated Learning for Privacy-Preserving Clinical Data Analysis** — "
+        "design and evaluate a federated learning pipeline that trains predictive "
+        "models across hospital data without centralising patient records.")
+    out.append(
+        "3. **Explainable Anomaly Detection in Time-Series Streams** — "
+        "combine unsupervised deep learning with post-hoc explainability methods "
+        "to flag and explain anomalies in real-time IoT or financial data.")
+    out.append(
+        "\n*These are starting points. Discuss with your supervisor and align with "
+        "your career goals and the modules you will study.*")
+
     return "\n".join(out)
 
 
 def _ensure_area_minimums(study_plan: str, validation, menu: dict | None,
                           requirements, constraints,
                           current_semester: str) -> tuple[str, bool]:
-    """Deterministic backstop: when the LLM plan still FAILS validation, rebuild the
+    """Deterministic backstop: when the LLM plan still FAILS validation, or when it
+    is short on total coursework CP (a WARNING the LLM often ignores), rebuild the
     coursework body from the curated menu so area minimums, the coursework total and
     the semester horizon are guaranteed in code rather than in the prompt. A PASSING
-    plan is returned untouched (a continuing student's good plan is never rewritten).
+    plan with correct totals is returned untouched.
     Returns (plan, replaced)."""
-    if validation is None or validation.ok:
+    _short = validation is not None and any(
+        f.rule == "coursework-total" for f in validation.findings)
+    if validation is None or (validation.ok and not _short):
         return study_plan, False
     if not menu or menu.get("remaining_total") is None:
         return study_plan, False  # no curated menu (legacy flow) -- leave as-is

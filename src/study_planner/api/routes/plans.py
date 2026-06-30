@@ -171,7 +171,10 @@ def _stage_demo_workspace() -> Path:
         if (src / f).exists():
             shutil.copyfile(src / f, tmp / f)
     from study_planner.ingest.blank_transcript import synthesize_blank_transcript
+    from study_planner.ingest.demo_career import synthesize_demo_career
     synthesize_blank_transcript(tmp / "transcript.pdf")
+    synthesize_demo_career(tmp / "career.pdf")
+    synthesize_demo_career(tmp / "cv.pdf")
     return tmp
 
 
