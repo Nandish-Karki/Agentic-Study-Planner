@@ -34,20 +34,35 @@ Scale workers: `docker compose up --build --scale worker=3`.
 
 ---
 
-## Option B — Managed cloud (Render + Vercel)
+## Option B — Managed cloud (Render + Vercel, database on Supabase)
 
-### Backend (API + worker + Postgres + Redis) → Render
+### Database → Supabase
+1. Create a project at [supabase.com](https://supabase.com) in an EU region (GDPR
+   residency).
+2. Project Settings → Database → Connection string → copy the **pooler** string
+   (host `aws-0-<region>.pooler.supabase.com`, port `6543`, PgBouncer transaction
+   mode) — not the direct `db.<project-ref>.supabase.co:5432` host. Render's free
+   web service opens/closes many short-lived connections and Supabase's direct
+   connection limit is small; the pooler is built for that.
+3. That's your `DATABASE_URL` (see the [Environment variables](#environment-variables)
+   table below). The app auto-rewrites `postgresql://` → `postgresql+asyncpg://`
+   and already sends TLS + disables asyncpg's statement cache for pooler hosts
+   (`study_planner/api/db.py`) — nothing else to configure.
+4. There is no Alembic setup in this project; schema is created by `init_db()`
+   (`create_all` + idempotent `ADD COLUMN IF NOT EXISTS`) on API boot, so first
+   boot against the new Supabase database creates the schema automatically.
+
+### Backend (API + worker + Redis) → Render
 1. Push this repo to GitHub.
 2. On [render.com](https://render.com): **New → Blueprint**, pick the repo. It reads
-   [`render.yaml`](render.yaml) and creates the Postgres DB, Redis, API web service,
-   and the worker — all in the `frankfurt` (EU) region for GDPR residency.
+   [`render.yaml`](render.yaml) and creates Redis, the API web service, and the
+   worker — all in the `frankfurt` (EU) region for GDPR residency.
 3. After it provisions, set these on the **API** and **worker** services
    (Dashboard → Environment):
+   - `DATABASE_URL` = the Supabase pooler connection string from above
    - `GITHUB_TOKEN` (and/or `GROQ_API_KEY`)
    - On the API: `ALLOWED_ORIGINS` = your frontend URL (e.g. `https://study-planner.vercel.app`)
    - `SECRET_KEY` is auto-generated; the worker inherits it from the API.
-4. `DATABASE_URL` is wired automatically and auto-rewritten to the async driver in
-   code — nothing to do.
 
 ### Frontend (static SPA) → Vercel
 ```bash
@@ -70,7 +85,7 @@ handles the SPA rewrite. Rebuild after changing it (the value is baked at build 
 |---|---|---|
 | `SECRET_KEY` | API + worker | **required when `DEBUG=0`**. `python -c "import secrets;print(secrets.token_urlsafe(48))"` |
 | `DEBUG` | API | `0` in prod |
-| `DATABASE_URL` | API + worker | `postgresql://…` is fine (auto-rewritten); SQLite for dev |
+| `DATABASE_URL` | API + worker | Supabase pooler string, `postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:6543/postgres` (auto-rewritten to `postgresql+asyncpg://`); SQLite for local dev |
 | `JOB_MODE` | API + worker | `rq` in prod, `eager` for dev/no-Redis |
 | `REDIS_URL` | API + worker | required when `JOB_MODE=rq` |
 | `ALLOWED_ORIGINS` | API | the frontend origin(s), comma-separated |

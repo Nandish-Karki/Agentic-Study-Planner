@@ -8,6 +8,8 @@
 # Personal documents — CV, transcript, etc. NEVER commit
 data/*.pdf
 data/*.docx
+data_new/*.pdf
+data_new/*.docx
 
 # Python
 __pycache__/
@@ -39,6 +41,15 @@ frontend/*.local
 *.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+
+# Claude Code local config/skills — machine-specific, not for the repo
+.claude/
+
+# graphify knowledge-graph cache — regenerated locally, not for the repo
+graphify-out/
+
+# Local working notes — not for the repo
+resume_generation_profile.md
 
 # IDE
 .vscode/

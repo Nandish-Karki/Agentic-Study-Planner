@@ -7,6 +7,7 @@ Alembic migrations (additive — the playbook's idempotent-persistence rule).
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -22,7 +23,29 @@ class Base(DeclarativeBase):
     pass
 
 
-engine = create_async_engine(settings.database_url, future=True)
+def _pg_connect_args(url: str) -> dict:
+    """asyncpg connect_args for hosted Postgres (Supabase et al).
+
+    Supabase requires TLS on every connection. Its PgBouncer connection pooler
+    (port 6543, host containing `pooler.supabase.com`) runs in transaction
+    mode, which is incompatible with asyncpg's server-side prepared statement
+    cache — disable it or every second query fails with
+    "prepared statement ... already exists".
+    """
+    if not url.startswith("postgresql"):
+        return {}
+    host = urlparse(url).hostname or ""
+    args: dict = {}
+    if host not in ("localhost", "127.0.0.1", "db"):
+        args["ssl"] = "require"
+    if "pooler.supabase.com" in host:
+        args["statement_cache_size"] = 0
+    return args
+
+
+engine = create_async_engine(
+    settings.database_url, future=True, connect_args=_pg_connect_args(settings.database_url)
+)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 

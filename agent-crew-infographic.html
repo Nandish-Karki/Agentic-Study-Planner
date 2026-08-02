@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agentic Study Planner — How the 5-Agent Crew Works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --font-sans: 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --bg: #0A0A0F;
+  --surface: #14141C;
+  --surface-2: #1E1E2A;
+  --text: #E6E6F0;
+  --text-muted: #8B8BA0;
+  --text-subtle: #4A4A5C;
+  --border: #2A2A38;
+  --accent: #00FF88;
+  --accent-2: #00D4FF;
+  --warn: #FFB800;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+body {
+  background: #050508;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.canvas {
+  width: 1200px;
+  height: 627px;
+  background: var(--bg);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* subtle grid overlay */
+.canvas::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,255,136,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,255,136,0.025) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* glow blobs */
+.glow-1 {
+  position: absolute;
+  width: 320px; height: 320px;
+  background: radial-gradient(circle, rgba(0,255,136,0.07) 0%, transparent 70%);
+  top: -60px; left: -60px;
+  pointer-events: none; z-index: 0;
+}
+.glow-2 {
+  position: absolute;
+  width: 280px; height: 280px;
+  background: radial-gradient(circle, rgba(0,212,255,0.06) 0%, transparent 70%);
+  bottom: -40px; right: 80px;
+  pointer-events: none; z-index: 0;
+}
+
+/* ── HEADER ── */
+.header {
+  position: relative; z-index: 1;
+  padding: 20px 32px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: 1px solid rgba(0,255,136,0.3);
+  padding: 3px 10px;
+  border-radius: 100px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.badge-dot {
+  width: 5px; height: 5px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: pulse-dot 2.4s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,100% { box-shadow: 0 0 0 0 rgba(0,255,136,0.5); }
+  50%      { box-shadow: 0 0 0 5px rgba(0,255,136,0); }
+}
+
+.title-block { text-align: left; }
+
+.title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.title span { color: var(--accent); }
+
+.subtitle {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  letter-spacing: 0.04em;
+}
+
+.provider-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.provider-chip {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface);
+}
+
+.provider-chip.primary { border-color: rgba(0,255,136,0.3); color: var(--accent); }
+.provider-chip.fallback { border-color: rgba(0,212,255,0.3); color: var(--accent-2); }
+.provider-chip.synthesis { border-color: rgba(255,184,0,0.3); color: var(--warn); }
+
+.chip-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+
+/* ── MAIN PIPELINE ── */
+.pipeline {
+  position: relative; z-index: 1;
+  flex: 1;
+  padding: 14px 28px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* row 1: 3 parallel analysts */
+.row-parallel {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.agent-card {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 11px 14px;
+  position: relative;
+  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+  cursor: default;
+}
+
+.agent-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(0,255,136,0.35);
+  box-shadow: 0 6px 24px rgba(0,255,136,0.08);
+}
+
+.agent-card.synthesis:hover {
+  border-color: rgba(255,184,0,0.35);
+  box-shadow: 0 6px 24px rgba(255,184,0,0.08);
+}
+
+.agent-card.planner:hover {
+  border-color: rgba(0,212,255,0.35);
+  box-shadow: 0 6px 24px rgba(0,212,255,0.1);
+}
+
+.agent-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.agent-icon {
+  width: 26px; height: 26px;
+  border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+.agent-icon.green { background: rgba(0,255,136,0.12); }
+.agent-icon.yellow { background: rgba(255,184,0,0.12); }
+.agent-icon.blue { background: rgba(0,212,255,0.12); }
+
+.agent-icon svg { width: 14px; height: 14px; }
+
+.agent-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.agent-tag {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  color: var(--text-subtle);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.agent-input {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--accent);
+  background: rgba(0,255,136,0.06);
+  border: 1px solid rgba(0,255,136,0.15);
+  border-radius: var(--radius-sm);
+  padding: 3px 7px;
+  display: inline-block;
+  margin-bottom: 5px;
+}
+
+.agent-input.yellow-inp {
+  color: var(--warn);
+  background: rgba(255,184,0,0.06);
+  border-color: rgba(255,184,0,0.15);
+}
+
+.agent-input.blue-inp {
+  color: var(--accent-2);
+  background: rgba(0,212,255,0.06);
+  border-color: rgba(0,212,255,0.15);
+}
+
+.agent-output {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+/* converge arrows */
+.converge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  position: relative;
+  margin: 0 0;
+}
+
+.converge-lines {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.arrow-down-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+
+.v-line {
+  width: 1px;
+  height: 18px;
+  background: linear-gradient(to bottom, var(--border), rgba(0,255,136,0.4));
+}
+
+.arrow-tip {
+  width: 0; height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid rgba(0,255,136,0.5);
+  margin-top: -1px;
+}
+
+/* parallel → merge visual */
+.merge-section {
+  display: flex;
+  align-items: flex-start;
+  height: 24px;
+  position: relative;
+  margin: 2px 0;
+}
+
+.merge-svg {
+  width: 100%;
+  height: 24px;
+}
+
+/* row 2: gap analyst (wide) */
+.row-single {
+  display: flex;
+  gap: 12px;
+}
+
+.agent-card.wide {
+  flex: 2;
+}
+
+.agent-card.narrow {
+  flex: 1;
+  background: var(--surface-2);
+  border-color: rgba(255,184,0,0.2);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 10px 14px;
+}
+
+/* arrow row between gap and planner */
+.arrow-row {
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* big planner card */
+.planner-row {
+  display: flex;
+  gap: 12px;
+}
+
+.agent-card.planner {
+  flex: 2;
+  background: linear-gradient(135deg, var(--surface) 0%, rgba(0,212,255,0.04) 100%);
+  border-color: rgba(0,212,255,0.25);
+}
+
+.planner-body {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.planner-left { flex: 1; }
+
+.planner-outputs {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.output-chip {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid;
+}
+
+.output-chip.green { color: var(--accent); border-color: rgba(0,255,136,0.2); background: rgba(0,255,136,0.05); }
+.output-chip.blue  { color: var(--accent-2); border-color: rgba(0,212,255,0.2); background: rgba(0,212,255,0.05); }
+.output-chip.warn  { color: var(--warn); border-color: rgba(255,184,0,0.2); background: rgba(255,184,0,0.05); }
+
+.output-chip-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+
+.deterministic-card {
+  flex: 1.1;
+  background: var(--surface-2);
+  border: 1px solid rgba(0,255,136,0.2);
+  border-radius: var(--radius-md);
+  padding: 11px 14px;
+  position: relative;
+  transition: transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.deterministic-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(0,255,136,0.5);
+  box-shadow: 0 6px 24px rgba(0,255,136,0.1);
+}
+
+.det-label {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 7px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.det-label::before {
+  content: '';
+  display: block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px rgba(0,255,136,0.6);
+}
+
+.det-rule {
+  font-size: 9.5px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  padding: 4px 0 4px 10px;
+  border-left: 2px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.det-rule.pass { border-left-color: rgba(0,255,136,0.4); color: var(--text); }
+
+/* ── FOOTER ── */
+.footer {
+  position: relative; z-index: 1;
+  padding: 8px 32px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--border);
+}
+
+.footer-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+
+.footer-stat-val {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.footer-sep {
+  width: 1px; height: 16px;
+  background: var(--border);
+}
+
+.footer-brand {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-subtle);
+  letter-spacing: 0.06em;
+}
+
+/* ── ANIMATIONS ── */
+.anim-in {
+  opacity: 0;
+  transform: translateY(6px);
+  animation: enter 500ms cubic-bezier(0.2,0.7,0.3,1) forwards;
+}
+
+.anim-in:nth-child(1) { animation-delay: 50ms; }
+.anim-in:nth-child(2) { animation-delay: 120ms; }
+.anim-in:nth-child(3) { animation-delay: 190ms; }
+.anim-in:nth-child(4) { animation-delay: 260ms; }
+.anim-in:nth-child(5) { animation-delay: 320ms; }
+.anim-in:nth-child(6) { animation-delay: 380ms; }
+.anim-in:nth-child(7) { animation-delay: 440ms; }
+
+@keyframes enter { to { opacity: 1; transform: translateY(0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-in { animation: none; opacity: 1; transform: none; }
+  .badge-dot { animation: none; }
+}
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="glow-1"></div>
+  <div class="glow-2"></div>
+
+  <!-- HEADER -->
+  <div class="header anim-in">
+    <div class="title-block">
+      <div class="title">How the <span>5-Agent Crew</span> Works</div>
+      <div class="subtitle">CrewAI · parallel analysis → deterministic enforcement</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:7px">
+      <div class="badge"><div class="badge-dot"></div>Agentic Study Planner</div>
+      <div class="provider-row">
+        <div class="provider-chip primary"><div class="chip-dot"></div>Groq llama-3.3-70b</div>
+        <div class="provider-chip fallback"><div class="chip-dot"></div>Gemini Flash</div>
+        <div class="provider-chip synthesis"><div class="chip-dot"></div>GPT-4o</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PIPELINE -->
+  <div class="pipeline">
+
+    <!-- ROW 1: 3 parallel analysts -->
+    <div class="row-parallel anim-in" style="animation-delay:100ms">
+
+      <!-- profile analyst -->
+      <div class="agent-card">
+        <div class="agent-header">
+          <div class="agent-icon green">
+            <svg viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="5" r="3" stroke="#00FF88" stroke-width="1.3"/>
+              <path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="#00FF88" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <div class="agent-name">profile_analyst</div>
+            <div class="agent-tag">[ PARALLEL ]</div>
+          </div>
+        </div>
+        <div class="agent-input">cv.pdf + transcript.pdf</div>
+        <div class="agent-output">Completed modules, credits earned, demonstrated skills</div>
+      </div>
+
+      <!-- career analyst -->
+      <div class="agent-card">
+        <div class="agent-header">
+          <div class="agent-icon green">
+            <svg viewBox="0 0 16 16" fill="none">
+              <rect x="2" y="4" width="12" height="9" rx="1.5" stroke="#00FF88" stroke-width="1.3"/>
+              <path d="M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1" stroke="#00FF88" stroke-width="1.3"/>
+              <path d="M5 9h6M5 11.5h4" stroke="#00FF88" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <div class="agent-name">career_analyst</div>
+            <div class="agent-tag">[ PARALLEL ]</div>
+          </div>
+        </div>
+        <div class="agent-input">career.pdf</div>
+        <div class="agent-output">Target role, must-have skills ranked by importance</div>
+      </div>
+
+      <!-- module curator -->
+      <div class="agent-card">
+        <div class="agent-header">
+          <div class="agent-icon green">
+            <svg viewBox="0 0 16 16" fill="none">
+              <rect x="2" y="2" width="12" height="12" rx="2" stroke="#00FF88" stroke-width="1.3"/>
+              <path d="M5 5h6M5 8h6M5 11h4" stroke="#00FF88" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <div class="agent-name">module_curator</div>
+            <div class="agent-tag">[ PARALLEL ]</div>
+          </div>
+        </div>
+        <div class="agent-input">module_handbook.pdf (908 pg)</div>
+        <div class="agent-output">Module catalog + area CP budgets — no hallucinations</div>
+      </div>
+    </div>
+
+    <!-- MERGE ARROWS -->
+    <div style="height:20px;position:relative;z-index:1;margin:0 28px">
+      <svg width="100%" height="20" viewBox="0 0 1088 20" preserveAspectRatio="none">
+        <!-- left line from card 1 center -->
+        <line x1="181" y1="0" x2="544" y2="18" stroke="rgba(0,255,136,0.3)" stroke-width="1"/>
+        <!-- center line from card 2 center -->
+        <line x1="544" y1="0" x2="544" y2="18" stroke="rgba(0,255,136,0.4)" stroke-width="1"/>
+        <!-- right line from card 3 center -->
+        <line x1="907" y1="0" x2="544" y2="18" stroke="rgba(0,255,136,0.3)" stroke-width="1"/>
+        <!-- arrowhead -->
+        <polygon points="540,15 548,15 544,20" fill="rgba(0,255,136,0.5)"/>
+      </svg>
+    </div>
+
+    <!-- ROW 2: gap analyst + mini label -->
+    <div class="row-single anim-in" style="animation-delay:200ms">
+      <div class="agent-card wide synthesis">
+        <div class="agent-header">
+          <div class="agent-icon yellow">
+            <svg viewBox="0 0 16 16" fill="none">
+              <circle cx="8" cy="8" r="5.5" stroke="#FFB800" stroke-width="1.3"/>
+              <path d="M8 5v3.5l2 2" stroke="#FFB800" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <div class="agent-name">gap_analyst</div>
+            <div class="agent-tag">[ SYNTHESIS — NO TOOLS ]</div>
+          </div>
+        </div>
+        <div class="agent-input yellow-inp">profile × career requirements</div>
+        <div class="agent-output">Prioritized skill gaps — what the student needs, ranked by career impact</div>
+      </div>
+
+      <div class="agent-card narrow">
+        <div style="font-family:var(--font-mono);font-size:8.5px;color:var(--warn);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:5px">Why no tools?</div>
+        <div style="font-size:9.5px;color:var(--text-muted);line-height:1.45">Synthesis agents reason only over what analysts extracted. Grounded in provenance — can't invent a module that wasn't in the handbook.</div>
+      </div>
+    </div>
+
+    <!-- ARROW DOWN -->
+    <div class="arrow-row anim-in" style="animation-delay:260ms">
+      <svg width="14" height="18" viewBox="0 0 14 18">
+        <line x1="7" y1="0" x2="7" y2="13" stroke="rgba(0,212,255,0.45)" stroke-width="1"/>
+        <polygon points="3,11 11,11 7,17" fill="rgba(0,212,255,0.5)"/>
+      </svg>
+    </div>
+
+    <!-- ROW 3: study planner + deterministic validator -->
+    <div class="planner-row anim-in" style="animation-delay:310ms">
+
+      <div class="agent-card planner">
+        <div class="agent-header">
+          <div class="agent-icon blue">
+            <svg viewBox="0 0 16 16" fill="none">
+              <rect x="2" y="2" width="12" height="12" rx="2" stroke="#00D4FF" stroke-width="1.3"/>
+              <path d="M5 6h6M5 8.5h4M5 11h3" stroke="#00D4FF" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <div class="agent-name">study_planner</div>
+            <div class="agent-tag">[ SYNTHESIS — NO TOOLS ]</div>
+          </div>
+        </div>
+        <div class="planner-body">
+          <div class="planner-left">
+            <div class="agent-input blue-inp">profile + gaps + catalog + constraints</div>
+            <div class="agent-output" style="margin-top:5px">Semester-wise plan · ~30 CP/sem · prerequisites respected · gaps closed first · LLM writes narrative only</div>
+          </div>
+          <div class="planner-outputs">
+            <div class="output-chip green"><div class="output-chip-dot"></div>study_plan.md</div>
+            <div class="output-chip blue"><div class="output-chip-dot"></div>per-module Why</div>
+            <div class="output-chip warn"><div class="output-chip-dot"></div>gaps not covered</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- deterministic validator -->
+      <div class="deterministic-card">
+        <div class="det-label">Deterministic Validator</div>
+        <div class="det-rule pass">Area min/max CP — Python counts, not LLM</div>
+        <div class="det-rule pass">Coursework total = 90 CP</div>
+        <div class="det-rule pass">No module retakes</div>
+        <div class="det-rule pass">Thesis last semester</div>
+        <div class="det-rule" style="border-left-color:rgba(0,212,255,0.3);color:var(--accent-2)">Fail? → backstop assembler rebuilds</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer anim-in" style="animation-delay:400ms">
+    <div style="display:flex;align-items:center;gap:16px">
+      <div class="footer-stat">Handbook pages: <span class="footer-stat-val">908</span></div>
+      <div class="footer-sep"></div>
+      <div class="footer-stat">Modules parsed: <span class="footer-stat-val">43</span></div>
+      <div class="footer-sep"></div>
+      <div class="footer-stat">Parser time: <span class="footer-stat-val">&lt;1s</span></div>
+      <div class="footer-sep"></div>
+      <div class="footer-stat">Agents: <span class="footer-stat-val">5</span></div>
+      <div class="footer-sep"></div>
+      <div class="footer-stat">LLM does: <span style="color:var(--warn);font-weight:600">narrative</span></div>
+      <div class="footer-sep"></div>
+      <div class="footer-stat">Python does: <span style="color:var(--accent);font-weight:600">arithmetic</span></div>
+    </div>
+    <div class="footer-brand">github.com/Nandish-Karki/Agentic-Study-Planner</div>
+  </div>
+</div>
+</body>
+</html>

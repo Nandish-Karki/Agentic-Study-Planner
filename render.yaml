@@ -1,6 +1,6 @@
 # Render.com blueprint — managed deploy (BUILD_PLAN deploy).
 # Create a new Blueprint on render.com pointing at this repo, then set the secret
-# env vars (GITHUB_TOKEN / GROQ_API_KEY / SMTP_*) in the dashboard after.
+# env vars (GITHUB_TOKEN / GROQ_API_KEY / SMTP_* / DATABASE_URL) in the dashboard after.
 #
 # Pick a EU region for GDPR residency (frankfurt).
 #
@@ -8,19 +8,18 @@
 # Render background WORKERS are not free, so we run the 5-agent crew INLINE in the
 # API (JOB_MODE=eager) and drop the separate worker + Redis. Trade-off: a plan
 # request blocks for the 1-2 min the crew takes, and the free web service sleeps
-# after 15 min idle (cold start on the next visit). Free Postgres is deleted after
-# 30 days. Fine for a demo; not for sustained traffic.
+# after 15 min idle (cold start on the next visit).
+#
+# Database is Supabase Postgres (Render's own free Postgres expires after 30 days —
+# we migrated off it). Use Supabase's connection pooler (port 6543, PgBouncer,
+# transaction mode) for the request path; the app's async engine
+# (study_planner/api/db.py) already disables asyncpg's statement cache and
+# requires TLS for any non-local Postgres host, both needed for the pooler.
 #
 # To upgrade to production (Path B): add back a `type: keyvalue` Redis service and
 # a `type: worker` service (dockerCommand: python -m study_planner.worker), set
 # JOB_MODE=rq + REDIS_URL on BOTH the api and worker, and pay for the worker
 # instance. See git history / DEPLOY.md for the rq topology.
-
-databases:
-  - name: study-planner-db
-    region: frankfurt
-    plan: free
-    postgresMajorVersion: "16"
 
 services:
   # API (web) — runs the crew inline (eager); no separate worker/Redis on free.
@@ -39,9 +38,8 @@ services:
       - key: JOB_MODE
         value: eager
       - key: DATABASE_URL
-        fromDatabase:
-          name: study-planner-db
-          property: connectionString
+        sync: false   # set in dashboard — Supabase connection string, e.g.
+                      # postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
       - key: ALLOWED_ORIGINS
         sync: false   # set to your frontend URL, e.g. https://study-planner.vercel.app
       - key: LLM_PROVIDER
@@ -73,7 +71,10 @@ services:
       - key: APP_BASE_URL
         sync: false   # your frontend URL, so verify/reset links open the SPA
 
-# NOTE: Render's connection string is `postgresql://…`; the app auto-rewrites it to
-# the async driver (`postgresql+asyncpg://…`) in config.py, so no manual prefix
-# needed. After the first deploy, set ALLOWED_ORIGINS + APP_BASE_URL to your
-# frontend URL and add the LLM + SMTP secrets in the dashboard. See DEPLOY.md.
+# NOTE: Supabase's connection string is `postgresql://…`; the app auto-rewrites it
+# to the async driver (`postgresql+asyncpg://…`) in config.py, so no manual prefix
+# needed. Use the pooler host (port 6543) for DATABASE_URL, not the direct
+# db.<project-ref>.supabase.co:5432 host — Render's free web service opens/closes
+# many short-lived connections and Supabase's direct connection limit is small.
+# After the first deploy, set ALLOWED_ORIGINS + APP_BASE_URL to your frontend URL
+# and add the LLM + SMTP + DATABASE_URL secrets in the dashboard. See DEPLOY.md.
