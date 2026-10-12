@@ -111,11 +111,41 @@ def test_signup_requires_consent(client):
     assert r.status_code == 400
 
 
-def test_unverified_cannot_create_plan(client):
+def _require_verification(monkeypatch, on: bool):
+    """Flip REQUIRE_EMAIL_VERIFICATION for one test (settings is frozen and
+    imported by name, so patch each module's reference)."""
+    import dataclasses
+    from study_planner.api import deps
+    from study_planner.api.routes import auth
+    patched = dataclasses.replace(deps.settings, require_email_verification=on)
+    monkeypatch.setattr(deps, "settings", patched)
+    monkeypatch.setattr(auth, "settings", patched)
+
+
+def test_unverified_cannot_create_plan(client, monkeypatch):
+    _require_verification(monkeypatch, True)
     email, pw, token = _signup(client)
     access = _login(client, email)
     r = _create_plan(client, access)
     assert r.status_code == 403  # email not verified yet
+
+
+def test_verification_off_skips_email_and_allows_plan(client, monkeypatch):
+    _require_verification(monkeypatch, False)
+    from study_planner.api.routes import auth
+    sent = []
+
+    async def _record(*a, **k):
+        sent.append(a)
+    monkeypatch.setattr(auth, "send_verification_email", _record)
+    r = client.post("/auth/signup", json={
+        "email": _email(), "password": "hunter2pass",
+        "accept_privacy": True, "accept_tos": True})
+    assert r.status_code == 201
+    assert r.json()["verification_required"] is False
+    assert sent == []  # no email attempted
+    access = _login(client, r.json()["email"])
+    assert _create_plan(client, access).status_code == 201  # no /auth/verify call
 
 
 def test_full_flow_signup_verify_plan(client):

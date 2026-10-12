@@ -37,6 +37,10 @@ class Settings:
     # (e.g. Render's free tier — SMTP ports are unreachable there). When set, mail
     # goes out over HTTPS to api.resend.com instead of an SMTP socket.
     resend_api_key: str
+    # Gate plan creation on a confirmed email. Off by default: without a verified
+    # sending domain, Resend can only mail the account owner, so nobody else could
+    # ever verify. Turn on (REQUIRE_EMAIL_VERIFICATION=1) once a domain is set up.
+    require_email_verification: bool
     # Base URL of the frontend, used to build verify/reset links in emails.
     app_base_url: str
     # Bundled sample inputs for the one-click "try the demo" flow (relative to CWD;
@@ -110,6 +114,7 @@ def load_settings() -> Settings:
         smtp_starttls=os.getenv("SMTP_STARTTLS", "0") == "1",
         smtp_ssl=os.getenv("SMTP_SSL", "0") == "1",
         resend_api_key=os.getenv("RESEND_API_KEY", ""),
+        require_email_verification=os.getenv("REQUIRE_EMAIL_VERIFICATION", "0") == "1",
         app_base_url=os.getenv("APP_BASE_URL", "http://localhost:5173"),
         sample_data_dir=os.getenv("SAMPLE_DATA_DIR", "sample_data"),
         max_plans_per_day=int(os.getenv("MAX_PLANS_PER_DAY", "5")),

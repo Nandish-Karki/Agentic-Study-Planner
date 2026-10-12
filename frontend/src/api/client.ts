@@ -118,7 +118,13 @@ export interface Constraints {
 
 export const api = {
   signup: (email: string, password: string) =>
-    request<{ id: string; email: string; message: string; verify_token?: string }>(
+    request<{
+      id: string;
+      email: string;
+      message: string;
+      verification_required?: boolean;
+      verify_token?: string;
+    }>(
       "/auth/signup",
       {
         method: "POST",

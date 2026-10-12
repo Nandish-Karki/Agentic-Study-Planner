@@ -10,7 +10,7 @@ export default function Signup() {
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ verifyToken?: string } | null>(null);
+  const [done, setDone] = useState<{ verifyToken?: string; mustVerify: boolean } | null>(null);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -18,12 +18,23 @@ export default function Signup() {
     setBusy(true);
     try {
       const res = await api.signup(email, password);
-      setDone({ verifyToken: res.verify_token });
+      // Older backends omit the flag and always require verification.
+      setDone({ verifyToken: res.verify_token, mustVerify: res.verification_required ?? true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Signup failed");
     } finally {
       setBusy(false);
     }
+  }
+
+  if (done && !done.mustVerify) {
+    return (
+      <AuthCard title="Account created" subtitle={`You're registered as ${email}.`}>
+        <button onClick={() => nav("/login")} className={`${btnCls} mt-2`}>
+          Sign in
+        </button>
+      </AuthCard>
+    );
   }
 
   if (done) {

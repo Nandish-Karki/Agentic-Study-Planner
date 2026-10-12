@@ -5,6 +5,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from study_planner.api.config import settings
 from study_planner.api.db import get_session
 from study_planner.api.models import User
 from study_planner.api.security import decode_token
@@ -36,8 +37,9 @@ async def get_current_user(
 
 
 async def get_verified_user(user: User = Depends(get_current_user)) -> User:
-    """Routes that require a confirmed email (e.g. generating a plan)."""
-    if not user.is_verified:
+    """Routes that require a confirmed email (e.g. generating a plan) — only
+    enforced when REQUIRE_EMAIL_VERIFICATION is on."""
+    if settings.require_email_verification and not user.is_verified:
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             "Please verify your email before creating a plan")
     return user

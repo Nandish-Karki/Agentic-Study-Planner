@@ -54,9 +54,13 @@ async def signup(body: SignupRequest, request: Request,
     await session.commit()
 
     token = make_verify_token(user.id)
-    await send_verification_email(user.email, token)
+    required = settings.require_email_verification
+    if required:
+        await send_verification_email(user.email, token)
     out = {"id": user.id, "email": user.email,
-           "message": "Account created. Check your email to verify."}
+           "verification_required": required,
+           "message": ("Account created. Check your email to verify." if required
+                       else "Account created. You can sign in now.")}
     if settings.debug:
         out["verify_token"] = token  # dev only — prod emails this
     return out
