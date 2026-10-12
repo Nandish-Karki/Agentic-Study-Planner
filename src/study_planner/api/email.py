@@ -79,6 +79,9 @@ def _send_resend(to: str, subject: str, text: str, html: str) -> None:
         headers={
             "Authorization": f"Bearer {settings.resend_api_key}",
             "Content-Type": "application/json",
+            # Resend sits behind Cloudflare, which bans urllib's default
+            # "Python-urllib/x.y" UA with a bare "403 error code: 1010".
+            "User-Agent": "study-planner/1.0",
         },
         method="POST",
     )

@@ -91,13 +91,13 @@ def test_falls_back_to_gemini_when_groq_rate_limited(patch_litellm, monkeypatch)
     arm(fail_models=["groq/"])
 
     result = litellm.completion(
-        model="groq/llama-3.3-70b-versatile", messages=[], api_key="groq-key"
+        model="groq/openai/gpt-oss-120b", messages=[], api_key="groq-key"
     )
 
     # Succeeded via the fallback, not the rate-limited primary.
     assert result == f"OK:{lc._FALLBACK_MODEL}"
     assert [c["model"] for c in calls] == [
-        "groq/llama-3.3-70b-versatile",
+        "groq/openai/gpt-oss-120b",
         lc._FALLBACK_MODEL,
     ]
     # The fallback call used the Gemini key, not the Groq one.
@@ -114,11 +114,11 @@ def test_switches_provider_once_then_backs_off(patch_litellm, monkeypatch):
 
     with pytest.raises(Exception):
         litellm.completion(
-            model="groq/llama-3.3-70b-versatile", messages=[], api_key="groq-key"
+            model="groq/openai/gpt-oss-120b", messages=[], api_key="groq-key"
         )
 
     # The single switch: groq tried once, then we never return to it.
-    assert [c["model"] for c in calls].count("groq/llama-3.3-70b-versatile") == 1
+    assert [c["model"] for c in calls].count("groq/openai/gpt-oss-120b") == 1
     assert calls[0]["model"].startswith("groq/")
     assert all(c["model"].startswith("gemini/") for c in calls[1:])
 
@@ -131,7 +131,7 @@ def test_no_fallback_without_key_preserves_old_behaviour(patch_litellm, monkeypa
 
     with pytest.raises(Exception):
         litellm.completion(
-            model="groq/llama-3.3-70b-versatile", messages=[], api_key="groq-key"
+            model="groq/openai/gpt-oss-120b", messages=[], api_key="groq-key"
         )
 
     assert all(c["model"].startswith("groq/") for c in calls)
@@ -151,7 +151,7 @@ def test_non_rate_limit_errors_are_not_retried(patch_litellm, monkeypatch):
     lc.ensure_litellm_patched()
 
     with pytest.raises(ValueError):
-        litellm.completion(model="groq/llama-3.3-70b-versatile", messages=[])
+        litellm.completion(model="groq/openai/gpt-oss-120b", messages=[])
     assert len(calls) == 1
 
 
@@ -176,7 +176,7 @@ def test_no_provider_switch_mid_tool_conversation(patch_litellm, monkeypatch):
         {"role": "tool", "content": "...file text..."},
     ]
     with pytest.raises(Exception):
-        litellm.completion(model="groq/llama-3.3-70b-versatile", messages=msgs, api_key="k")
+        litellm.completion(model="groq/openai/gpt-oss-120b", messages=msgs, api_key="k")
     # never switched to gemini despite the rate-limit
     assert calls, "expected at least one attempt"
     assert all(c["model"].startswith("groq/") for c in calls)

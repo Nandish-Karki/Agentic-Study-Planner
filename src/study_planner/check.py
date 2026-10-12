@@ -56,9 +56,9 @@ def check_env() -> list[str]:
 
     # keep in sync with crew.py _defaults
     defaults = {
-        "mixed":  ("groq/llama-3.3-70b-versatile", "github/gpt-4o"),
+        "mixed":  ("groq/openai/gpt-oss-120b", "github/gpt-4o"),
         "github": ("github/gpt-4o-mini", "github/gpt-4o"),
-        "groq":   ("groq/llama-3.3-70b-versatile", "groq/llama-3.3-70b-versatile"),
+        "groq":   ("groq/openai/gpt-oss-120b", "groq/openai/gpt-oss-120b"),
     }
     provider = os.getenv("LLM_PROVIDER", "mixed").lower()
     if not report(provider in defaults, "LLM_PROVIDER", provider,

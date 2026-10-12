@@ -15,7 +15,7 @@ if provider == "github":
     print(f"[llm config] GITHUB_TOKEN present: {bool(key)}")
 else:
     key = os.getenv("GROQ_API_KEY")
-    model = "groq/llama-3.3-70b-versatile"
+    model = "groq/openai/gpt-oss-120b"
     print(f"[llm config] GROQ_API_KEY present: {bool(key)}")
 
 print(f"[llm config] model: {model}")
@@ -26,7 +26,7 @@ resp = litellm.completion(
     model=model,
     api_key=key,
     messages=[{"role": "user", "content": "Reply with exactly: PROVIDER_OK"}],
-    max_tokens=10,
+    max_tokens=200,  # gpt-oss reasons first; 10 tokens can end before any content
 )
 print("Response:", resp.choices[0].message.content)
 print("Actual model used:", resp.model)

@@ -32,8 +32,10 @@ from functools import lru_cache
 # heavy 5-agent crew that makes dozens of calls; this split is the least-bad mix:
 #   GitHub Models: ~8k tokens/request cap → too small to READ big docs, fine for
 #                  the lighter synthesis pass.
-#   Groq:          large context, ~100k tokens/DAY (TPD). Enough for ~1 full run/
-#                  day; the best free fit for the token-hungry reading agents.
+#   Groq:          gpt-oss-120b (llama-3.3-70b was retired 2026-08-16). 131k
+#                  context, but only 8k tokens/MINUTE on our key — which also caps
+#                  a single request at 8k — and ~200k tokens/DAY. Reasoning model:
+#                  its reasoning tokens count against both, so we run it at "low".
 #   Gemini:        gemini-flash-latest = gemini-3.5-flash, only ~20 requests/DAY
 #                  free — far too few to be the PRIMARY (a run needs dozens), but
 #                  fine as an occasional fallback / a clean-boundary provider swap.
@@ -42,9 +44,9 @@ from functools import lru_cache
 # point LLM_MODEL_FAST/SMART at it. "gemini" routes everything to Gemini (only
 # viable on a paid Gemini tier).
 _DEFAULTS = {
-    "mixed":  ("groq/llama-3.3-70b-versatile", "github/gpt-4o"),
+    "mixed":  ("groq/openai/gpt-oss-120b", "github/gpt-4o"),
     "github": ("github/gpt-4o-mini", "github/gpt-4o"),
-    "groq":   ("groq/llama-3.3-70b-versatile", "groq/llama-3.3-70b-versatile"),
+    "groq":   ("groq/openai/gpt-oss-120b", "groq/openai/gpt-oss-120b"),
     "gemini": ("gemini/gemini-flash-latest", "gemini/gemini-flash-latest"),
 }
 
@@ -135,11 +137,11 @@ def _is_transient(err: str) -> bool:
 def _is_bad_tool_format(err: str) -> bool:
     """True when Groq rejects a malformed tool call emitted by the model.
 
-    llama-3.3-70b occasionally reverts to its pre-training function-call format
-    (<function=name {args}>) instead of proper JSON tool calls. Groq parses the
-    whole string as the tool name, finds no match in request.tools, and returns
-    'tool_use_failed'. This is probabilistic model behaviour — retrying the same
-    request usually produces the correct format."""
+    Seen with llama-3.3-70b (retired), which occasionally reverted to its
+    pre-training function-call format (<function=name {args}>) instead of proper
+    JSON tool calls. Groq parses the whole string as the tool name, finds no match
+    in request.tools, and returns 'tool_use_failed'. Kept for any Groq model: it
+    is probabilistic — retrying the same request usually produces the right format."""
     e = err.lower()
     return "tool_use_failed" in e or "tool call validation failed" in e
 
@@ -297,6 +299,15 @@ def _key_for(model: str) -> str:
     return key
 
 
+def _extra_kwargs(model: str) -> dict:
+    """Per-model LLM kwargs. gpt-oss is a reasoning model: its hidden reasoning
+    tokens count against Groq's per-minute and per-day token caps, so keep the
+    effort low — the crew's tasks are extraction/planning, not deep math."""
+    if "gpt-oss" in model:
+        return {"reasoning_effort": os.getenv("LLM_REASONING_EFFORT", "low")}
+    return {}
+
+
 def resolve_models() -> tuple[str, str]:
     """(fast_model, smart_model) from env, validated. No object construction."""
     provider = os.getenv("LLM_PROVIDER", "mixed").lower()
@@ -321,7 +332,7 @@ def get_llms():
     # litellm.completion patch — so the fallback / retry / tool-schema fixes would
     # silently not apply. Routing through LiteLLM keeps one resilient code path.
     llm_fast = LLM(model=fast_model, api_key=_key_for(fast_model),
-                   temperature=0.2, is_litellm=True)
+                   temperature=0.2, is_litellm=True, **_extra_kwargs(fast_model))
     llm_smart = LLM(model=smart_model, api_key=_key_for(smart_model),
-                    temperature=0.2, is_litellm=True)
+                    temperature=0.2, is_litellm=True, **_extra_kwargs(smart_model))
     return llm_fast, llm_smart

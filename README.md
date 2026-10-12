@@ -72,7 +72,7 @@ Set `LLM_PROVIDER` in `.env`:
 | Provider | Env var | Notes |
 |---|---|---|
 | `github` (default) | `GITHUB_TOKEN` | GitHub Models — needs `models:read` scope; gpt-4o-mini (fast agents) + gpt-4o (synthesis) |
-| `groq` | `GROQ_API_KEY` | llama-3.3-70b — free tier: ~100k tokens/day |
+| `groq` | `GROQ_API_KEY` | gpt-oss-120b — free tier: 8k tokens/min (= max request), ~200k tokens/day |
 | `mixed` | both keys | Groq primary, Gemini Flash fallback (`GEMINI_API_KEY`), GitHub GPT-4o for synthesis — production config |
 
 ### Without Docker (Python + venv)
@@ -154,7 +154,7 @@ agentic-study-planner/
 | Backend API | FastAPI + async SQLAlchemy | Render (Frankfurt, Docker) |
 | Worker | RQ + Redis | Render (same image, `python -m study_planner.worker`) |
 | Database | PostgreSQL 16 | Render Postgres (EU region) |
-| AI | CrewAI 1.14 — Groq llama-3.3-70b (primary), Gemini Flash (fallback), GitHub gpt-4o (synthesis) | — |
+| AI | CrewAI 1.14 — Groq gpt-oss-120b (primary), Gemini Flash (fallback), GitHub gpt-4o (synthesis) | — |
 | Email | Resend HTTPS (dormant until domain attached) / Mailpit locally | — |
 | OCR | Tesseract + pdf2image (lazy import — degrades if unavailable) | — |
 
