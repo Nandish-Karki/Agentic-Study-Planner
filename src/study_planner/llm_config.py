@@ -51,9 +51,10 @@ _DEFAULTS = {
 }
 
 # Cross-provider fallback target when the primary provider (Groq) is rate-limited.
-# Uses GitHub gpt-4o (GITHUB_TOKEN) — a separate quota pool from Groq.
-# Override with LLM_FALLBACK_MODEL if needed.
-_FALLBACK_MODEL = "github/gpt-4o"
+# Gemini (GEMINI_API_KEY) — a separate quota pool from Groq. GitHub Models used to
+# be the target but was retired 2026-07-30. Override with LLM_FALLBACK_MODEL; its
+# key is resolved from its provider prefix, so any supported provider works.
+_FALLBACK_MODEL = "gemini/gemini-flash-latest"
 
 _patched = False
 
@@ -227,12 +228,12 @@ def ensure_litellm_patched() -> None:
                 last_exc = e
                 model = str(kwargs.get("model", ""))
                 fallback_model = os.getenv("LLM_FALLBACK_MODEL", _FALLBACK_MODEL)
-                fallback_key = os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_API_KEY")
+                fallback_key = _optional_key_for(fallback_model)
                 # A rate-limit or a context-overflow is fixed by a different
                 # provider (separate quota / larger window), not by waiting — but
                 # only switch at a clean boundary (no cross-provider tool history).
                 can_switch = ((rate or overflow) and fallback_key and not fell_back
-                              and not model.startswith("github/")
+                              and not model.startswith(fallback_model.split("/")[0] + "/")
                               and not _has_tool_call_history(kwargs.get("messages")))
                 if can_switch:
                     why = "rate-limited" if rate else "context-overflow"
@@ -297,6 +298,14 @@ def _key_for(model: str) -> str:
     else:
         raise ValueError(f"unsupported provider prefix in model: {model}")
     return key
+
+
+def _optional_key_for(model: str) -> str | None:
+    """Like _key_for, but None when the key is unset (fallback just disarms)."""
+    try:
+        return _key_for(model)
+    except ValueError:
+        return None
 
 
 def _extra_kwargs(model: str) -> dict:

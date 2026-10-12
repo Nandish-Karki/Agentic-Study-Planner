@@ -12,7 +12,8 @@ from study_planner.api import email
 def _settings(**kw):
     base = dict(smtp_host="smtp.example.com", smtp_port=587, smtp_user="user",
                 smtp_password="pw", smtp_from="Study Planner <no-reply@x.com>",
-                smtp_starttls=False, smtp_ssl=False, email_enabled=True)
+                smtp_starttls=False, smtp_ssl=False, resend_api_key="",
+                email_enabled=True)
     base.update(kw)
     return types.SimpleNamespace(**base)
 
@@ -22,7 +23,8 @@ def _run(coro):
 
 
 def test_disabled_is_noop(monkeypatch):
-    monkeypatch.setattr(email, "settings", _settings(email_enabled=False))
+    # Disabled = no transport configured (neither Resend nor SMTP).
+    monkeypatch.setattr(email, "settings", _settings(smtp_host="", email_enabled=False))
     assert _run(email._send("a@b.c", "s", "t", "<p>h</p>")) is False
 
 
